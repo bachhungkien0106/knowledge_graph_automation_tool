@@ -5,7 +5,10 @@ import ForceGraph from './components/ForceGraph';
 import InfoPanel from './components/InfoPanel';
 import Legend from './components/Legend';
 import NoteModal from './components/NoteModal';
-import { Search, Loader2, Sparkles, AlertCircle, Eye, EyeOff, Route, X, FileText, ArrowRight, Undo } from 'lucide-react';
+import GraphStats from './components/GraphStats';
+import { Search, Loader2, Sparkles, AlertCircle, Eye, EyeOff, Route, X, FileText, ArrowRight, Undo, BarChart3, Zap } from 'lucide-react';
+
+export type FilterState = { type: 'group' | 'effect', value: string } | null;
 
 const App: React.FC = () => {
   // Graph State
@@ -19,6 +22,11 @@ const App: React.FC = () => {
   const [expandStatus, setExpandStatus] = useState<FetchStatus>('idle');
   const [showLabels, setShowLabels] = useState(true);
   const [isNoteModalOpen, setIsNoteModalOpen] = useState(false);
+  const [isStatsOpen, setIsStatsOpen] = useState(false);
+
+  // Fun / Physics State
+  const [filterState, setFilterState] = useState<FilterState>(null);
+  const [shakeTrigger, setShakeTrigger] = useState(0);
 
   // Pathfinding / Filtering Mode State
   const [isPathMode, setIsPathMode] = useState(false);
@@ -139,6 +147,7 @@ const App: React.FC = () => {
     setSearchQuery(query); // Sync search bar
     setIsPathMode(false); // Reset mode
     setPathSequence([]);
+    setFilterState(null);
     
     try {
       const data = await fetchInitialGraph(query);
@@ -157,6 +166,7 @@ const App: React.FC = () => {
     setSelectedNode(null);
     setIsPathMode(false);
     setPathSequence([]);
+    setFilterState(null);
     
     try {
       const data = await generateGraphFromText(text);
@@ -246,12 +256,17 @@ const App: React.FC = () => {
       const newMode = !isPathMode;
       setIsPathMode(newMode);
       setPathSequence([]); // Always reset sequence on toggle
+      setFilterState(null); // Clear filters
       if (newMode) setSelectedNode(null); // Close info panel when entering path mode
   };
 
   // Helper to remove last node from sequence
   const undoLastPathStep = () => {
       setPathSequence(prev => prev.slice(0, -1));
+  };
+
+  const handleJolt = () => {
+      setShakeTrigger(prev => prev + 1);
   };
 
   return (
@@ -298,8 +313,24 @@ const App: React.FC = () => {
                   >
                     <FileText size={20} />
                   </button>
+                  
+                  <button 
+                    onClick={() => setIsStatsOpen(true)}
+                    className="p-2 rounded-lg text-slate-600 hover:text-indigo-600 hover:bg-slate-50 transition-colors"
+                    title="View Graph Statistics"
+                  >
+                    <BarChart3 size={20} />
+                  </button>
 
                   <div className="w-px bg-slate-200 mx-1 my-1"></div>
+
+                  <button 
+                    onClick={handleJolt}
+                    className="p-2 rounded-lg text-amber-500 hover:text-amber-600 hover:bg-amber-50 transition-colors"
+                    title="Jolt: Shake the ecosystem"
+                  >
+                    <Zap size={20} className={shakeTrigger > 0 ? "fill-amber-500" : ""} />
+                  </button>
 
                   <button 
                     onClick={togglePathMode}
@@ -405,16 +436,26 @@ const App: React.FC = () => {
             highlightedNodeIds={highlightedNodeIds}
             highlightedLinkIds={highlightedLinkIds}
             sequenceNodeIds={sequenceNodeIds}
+            filterState={filterState}
+            shakeTrigger={shakeTrigger}
           />
         )}
       </main>
 
       {/* Overlays */}
-      <Legend />
+      <Legend 
+        activeFilter={filterState}
+        onFilterChange={setFilterState}
+      />
       <NoteModal 
         isOpen={isNoteModalOpen} 
         onClose={() => setIsNoteModalOpen(false)} 
         onSubmit={handleNoteSubmit} 
+      />
+      <GraphStats 
+        isOpen={isStatsOpen} 
+        onClose={() => setIsStatsOpen(false)} 
+        data={graphData} 
       />
       
       {/* Hide InfoPanel if in Path Mode to reduce clutter */}

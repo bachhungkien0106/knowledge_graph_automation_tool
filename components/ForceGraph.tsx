@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
 import { GraphData, GraphNode, GraphLink, GROUP_COLORS, NodeGroup } from '../types';
+import { FilterState } from '../App';
 
 interface ForceGraphProps {
   data: GraphData;
@@ -12,6 +13,13 @@ interface ForceGraphProps {
   highlightedNodeIds?: Set<string> | null;
   highlightedLinkIds?: Set<string> | null;
   sequenceNodeIds?: string[];
+  filterState?: FilterState;
+  shakeTrigger?: number;
+}
+
+// Extend link type internally to track display properties
+interface DisplayLink extends GraphLink {
+  isCurved?: boolean;
 }
 
 const ForceGraph: React.FC<ForceGraphProps> = ({ 
@@ -23,7 +31,9 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
   showLabels = true,
   highlightedNodeIds = null,
   highlightedLinkIds = null,
-  sequenceNodeIds = []
+  sequenceNodeIds = [],
+  filterState = null,
+  shakeTrigger = 0
 }) => {
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -51,12 +61,12 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Update opacity based on Highlight Filters (Pathfinding)
+  // Update opacity based on Highlight Filters
   useEffect(() => {
     if (!svgRef.current) return;
     const svg = d3.select(svgRef.current);
     
-    const hasHighlight = highlightedNodeIds && highlightedNodeIds.size > 0;
+    const hasPathHighlight = highlightedNodeIds && highlightedNodeIds.size > 0;
     
     // Default Opacities
     const NODE_OPACITY_ACTIVE = 1;
@@ -67,51 +77,81 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
     const LINK_FLOW_OPACITY_NORMAL = 0.8;
     const LINK_FLOW_OPACITY_DIMMED = 0.05;
 
+    // Helper: Is this node visible?
+    const isNodeVisible = (d: GraphNode) => {
+        if (hasPathHighlight) {
+            return highlightedNodeIds.has(d.id);
+        }
+        if (filterState) {
+            if (filterState.type === 'group') {
+                return d.group === filterState.value;
+            }
+            return true;
+        }
+        return true;
+    };
+
+    // Helper: Is this link visible?
+    const isLinkVisible = (d: GraphLink) => {
+        const s = typeof d.source === 'object' ? (d.source as GraphNode).id : d.source;
+        const t = typeof d.target === 'object' ? (d.target as GraphNode).id : d.target;
+        
+        if (hasPathHighlight) {
+             const key = `${s}-${t}`;
+             return highlightedLinkIds?.has(key);
+        }
+
+        if (filterState) {
+            if (filterState.type === 'group') {
+                const sNode = (data.nodes || []).find(n => n.id === s);
+                const tNode = (data.nodes || []).find(n => n.id === t);
+                return sNode?.group === filterState.value && tNode?.group === filterState.value;
+            }
+            if (filterState.type === 'effect') {
+                return d.effect === filterState.value;
+            }
+        }
+        return true;
+    };
+
     // 1. Update Nodes
     svg.selectAll<SVGGElement, GraphNode>(".nodes g")
        .transition().duration(400)
        .style("opacity", (d) => {
-          if (!hasHighlight) return NODE_OPACITY_ACTIVE;
-          return highlightedNodeIds.has(d.id) ? NODE_OPACITY_ACTIVE : NODE_OPACITY_DIMMED;
+          return isNodeVisible(d) ? NODE_OPACITY_ACTIVE : NODE_OPACITY_DIMMED;
        });
 
-    // Helper to check if a link is part of the highlight
-    const isLinkHighlighted = (d: GraphLink) => {
-        if (!hasHighlight || !highlightedLinkIds) return false;
-        const s = typeof d.source === 'object' ? (d.source as GraphNode).id : d.source;
-        const t = typeof d.target === 'object' ? (d.target as GraphNode).id : d.target;
-        const key = `${s}-${t}`;
-        return highlightedLinkIds.has(key);
-    };
-
     // 2. Update Links (Base)
-    svg.selectAll<SVGLineElement, GraphLink>(".links-base line")
+    svg.selectAll<SVGPathElement, DisplayLink>(".links-base path")
        .transition().duration(400)
        .attr("stroke-opacity", (d) => {
-          if (!hasHighlight) return LINK_BASE_OPACITY_NORMAL;
-          return isLinkHighlighted(d) ? LINK_BASE_OPACITY_ACTIVE : LINK_BASE_OPACITY_DIMMED;
+          return isLinkVisible(d) ? (hasPathHighlight ? LINK_BASE_OPACITY_ACTIVE : LINK_BASE_OPACITY_NORMAL) : LINK_BASE_OPACITY_DIMMED;
        });
 
     // 3. Update Links (Flow)
-    svg.selectAll<SVGLineElement, GraphLink>(".links-flow line")
+    svg.selectAll<SVGPathElement, DisplayLink>(".links-flow path")
        .transition().duration(400)
        .attr("stroke-opacity", (d) => {
-          if (!hasHighlight) return LINK_FLOW_OPACITY_NORMAL;
-          return isLinkHighlighted(d) ? 1 : LINK_FLOW_OPACITY_DIMMED;
+          return isLinkVisible(d) ? (hasPathHighlight ? 1 : LINK_FLOW_OPACITY_NORMAL) : LINK_FLOW_OPACITY_DIMMED;
        });
 
     // 4. Update Link Labels
-    svg.selectAll<SVGGElement, GraphLink>(".link-labels g")
+    svg.selectAll<SVGGElement, DisplayLink>(".link-labels g")
        .transition().duration(400)
        .style("opacity", (d) => {
-           // If globally hidden, stay hidden
            if (!showLabels) return 0;
-           
-           if (!hasHighlight) return 1;
-           return isLinkHighlighted(d) ? 1 : LINK_FLOW_OPACITY_DIMMED;
+           return isLinkVisible(d) ? 1 : LINK_FLOW_OPACITY_DIMMED;
        });
 
-  }, [highlightedNodeIds, highlightedLinkIds, showLabels]);
+  }, [highlightedNodeIds, highlightedLinkIds, showLabels, filterState, data.nodes]);
+
+  // Effect for Shake / Jolt Physics
+  useEffect(() => {
+      if (shakeTrigger > 0 && simulationRef.current) {
+          // Re-heat simulation
+          simulationRef.current.alpha(0.8).restart();
+      }
+  }, [shakeTrigger]);
 
 
   // Main Effect: D3 Initialization and Updates
@@ -122,17 +162,15 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
     const { w, h } = dimensions;
 
     // --- 1. SETUP (Run Once) ---
-    // Check if layers exist, if not create them
     let container = svg.select<SVGGElement>(".zoom-container");
     
     if (container.empty()) {
-        // Define Markers
         const defs = svg.append("defs");
         const createMarker = (id: string, color: string) => {
             defs.append("marker")
                 .attr("id", id)
                 .attr("viewBox", "0 -5 10 10")
-                .attr("refX", 26)
+                .attr("refX", 26) // Pushed back slightly to accommodate node radius
                 .attr("refY", 0)
                 .attr("markerWidth", 8)
                 .attr("markerHeight", 8)
@@ -145,7 +183,6 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
         createMarker("arrow-negative", "#ef4444");
         createMarker("arrow-neutral", "#94a3b8");
 
-        // Create Container and Layers
         container = svg.append("g").attr("class", "zoom-container");
         container.append("g").attr("class", "links-base");
         container.append("g").attr("class", "links-flow");
@@ -153,47 +190,35 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
         container.append("g").attr("class", "nodes");
         container.append("g").attr("class", "node-labels");
 
-        // Zoom Behavior
         const zoom = d3.zoom<SVGSVGElement, unknown>()
             .scaleExtent([0.1, 4])
             .on("zoom", (event) => {
                 container.attr("transform", event.transform);
             });
         svg.call(zoom);
-        // Initial zoom center
         svg.call(zoom.transform, d3.zoomIdentity.translate(w / 2, h / 2).scale(0.8));
     }
 
     // --- 2. DATA MERGE & PREPARATION ---
-    // We need to merge new data with existing simulation nodes to preserve positions
-    
     const currentSim = simulationRef.current;
     const oldNodesMap = new Map<string, GraphNode>(currentSim ? currentSim.nodes().map(n => [n.id, n]) : []);
     
-    // Process Nodes: Keep old objects if they exist to preserve x,y,vx,vy
+    // Process Nodes
     const mutableNodes = (data.nodes || []).map(n => {
         const old = oldNodesMap.get(n.id);
         if (old) {
-            // Update data properties but keep simulation state
             return Object.assign(old, n); 
         }
-        return { ...n }; // New node
+        return { ...n };
     });
 
-    // Detect if this is a "Reset" (Focus) or "Update" (Expand)
-    // If we have overlap between old and new nodes, it's likely an update.
     const isUpdate = mutableNodes.some(n => oldNodesMap.has(n.id));
-
-    // For NEW nodes in an Update scenario, set their position to a connected parent
     if (isUpdate) {
         mutableNodes.forEach(n => {
             if (!oldNodesMap.has(n.id)) {
-                // It's a new node. Find a link connecting it to an existing node.
-                // Note: props.data.links has string IDs or objects depending on source.
                 const parentLink = (data.links || []).find(l => {
                     const s = typeof l.source === 'object' ? (l.source as any).id : l.source;
                     const t = typeof l.target === 'object' ? (l.target as any).id : l.target;
-                    // Check if one end is this node, and the other end is an OLD node
                     return (s === n.id && oldNodesMap.has(t)) || (t === n.id && oldNodesMap.has(s));
                 });
 
@@ -204,7 +229,6 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
                     const parent = oldNodesMap.get(parentId);
                     
                     if (parent && parent.x !== undefined && parent.y !== undefined) {
-                        // Spawn at parent position
                         n.x = parent.x;
                         n.y = parent.y;
                     }
@@ -213,51 +237,54 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
         });
     }
 
-    // Process Links: Create a fresh array, but D3 will resolve references to the mutableNodes objects
-    const mutableLinks = (data.links || []).map(d => ({ ...d }));
-
-    // --- 2.1 TOPOLOGY ANALYSIS (Start/End Nodes) ---
-    const inDegree = new Map<string, number>();
-    const outDegree = new Map<string, number>();
-
-    mutableLinks.forEach(l => {
-        // Safe ID extraction whether it's a string or object reference
+    // Process Links & Calculate Curvature
+    // We count how many links are between each pair of nodes (A-B)
+    const linkCounts: Record<string, number> = {};
+    (data.links || []).forEach(l => {
         const s = typeof l.source === 'object' ? (l.source as any).id : l.source;
         const t = typeof l.target === 'object' ? (l.target as any).id : l.target;
+        const key = s < t ? `${s}-${t}` : `${t}-${s}`;
+        linkCounts[key] = (linkCounts[key] || 0) + 1;
+    });
+
+    const mutableLinks: DisplayLink[] = (data.links || []).map(d => {
+        const l = { ...d };
+        const s = typeof l.source === 'object' ? (l.source as any).id : l.source;
+        const t = typeof l.target === 'object' ? (l.target as any).id : l.target;
+        const key = s < t ? `${s}-${t}` : `${t}-${s}`;
         
+        // If there is more than 1 link between these nodes (e.g. bidirectional), 
+        // we flag it to be curved.
+        l.isCurved = linkCounts[key] > 1;
+        return l;
+    });
+
+    // --- 2.1 TOPOLOGY ANALYSIS ---
+    const inDegree = new Map<string, number>();
+    const outDegree = new Map<string, number>();
+    mutableLinks.forEach(l => {
+        const s = typeof l.source === 'object' ? (l.source as any).id : l.source;
+        const t = typeof l.target === 'object' ? (l.target as any).id : l.target;
         outDegree.set(s, (outDegree.get(s) || 0) + 1);
         inDegree.set(t, (inDegree.get(t) || 0) + 1);
     });
 
     const getNodeStyle = (id: string) => {
-        // PRIORITY: Sequence Styling (Path Mode)
         if (sequenceNodeIds && sequenceNodeIds.includes(id)) {
              const index = sequenceNodeIds.indexOf(id);
-             // Start of sequence
-             if (index === 0) return { stroke: '#3b82f6', width: 5 }; // Blue
-             // End of sequence
-             if (index === sequenceNodeIds.length - 1) return { stroke: '#f97316', width: 5 }; // Orange
-             // Waypoint (Middle)
-             return { stroke: '#eab308', width: 5 }; // Yellow
+             if (index === 0) return { stroke: '#3b82f6', width: 5 };
+             if (index === sequenceNodeIds.length - 1) return { stroke: '#f97316', width: 5 };
+             return { stroke: '#eab308', width: 5 };
         }
-
-        // DEFAULT: Topology Styling
         const ins = inDegree.get(id) || 0;
         const outs = outDegree.get(id) || 0;
-        
-        // Start Node: Only outgoing (or mostly outgoing if we were fuzzy, but strict is fine here)
-        if (ins === 0 && outs > 0) return { stroke: '#3b82f6', width: 4 }; // Blue
-        
-        // End Node: Only incoming
-        if (outs === 0 && ins > 0) return { stroke: '#f97316', width: 4 }; // Orange
-        
-        // Default/Intermediate
+        if (ins === 0 && outs > 0) return { stroke: '#3b82f6', width: 4 };
+        if (outs === 0 && ins > 0) return { stroke: '#f97316', width: 4 };
         return { stroke: '#ffffff', width: 2 };
     };
 
 
-    // --- 3. SIMULATION UPDATE ---
-    
+    // --- 3. SIMULATION ---
     let simulation = simulationRef.current;
     if (!simulation) {
         simulation = d3.forceSimulation<GraphNode, GraphLink>()
@@ -268,14 +295,10 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
     }
 
     simulation.nodes(mutableNodes);
-    
-    // Re-initialize forceLink
     simulation.force("link", d3.forceLink<GraphNode, GraphLink>(mutableLinks)
         .id((d) => d.id)
-        .distance(160)
+        .distance(180) // Increased distance slightly to accommodate curves
     );
-
-    // Restart simulation with energy
     simulation.alpha(1).restart();
 
     // --- 4. JOIN & RENDER ---
@@ -286,46 +309,46 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
     const nodeGroup = container.select(".nodes");
     const nodeLabelGroup = container.select(".node-labels");
 
-    // Helper for color
-    const getLinkColor = (d: GraphLink) => {
+    const getLinkColor = (d: DisplayLink) => {
         if (d.effect === 'positive') return '#22c55e';
         if (d.effect === 'negative') return '#ef4444';
         return '#94a3b8';
     };
 
-    // 4a. Update Links (Base)
-    const linkBase = linkBaseGroup.selectAll<SVGLineElement, GraphLink>("line")
+    // 4a. Update Links (Base) - NOW USING PATH
+    const linkBase = linkBaseGroup.selectAll<SVGPathElement, DisplayLink>("path")
         .data(mutableLinks, (d: any) => {
             const s = typeof d.source === 'object' ? d.source.id : d.source;
             const t = typeof d.target === 'object' ? d.target.id : d.target;
             return `${s}-${t}`;
         })
         .join(
-            enter => enter.append("line")
-                .attr("stroke-width", 2)
+            enter => enter.append("path")
+                .attr("stroke-width", 10) // Wider click area
                 .attr("stroke", getLinkColor)
-                .attr("stroke-opacity", 0) // Start invisible
+                .attr("fill", "none")
+                .attr("stroke-opacity", 0) 
                 .call(enter => enter.transition().duration(800).attr("stroke-opacity", 0.15)),
-            update => update
-                .attr("stroke", getLinkColor),
+            update => update.attr("stroke", getLinkColor),
             exit => exit.remove()
         );
 
-    // 4b. Update Links (Flow/Animated)
-    const linkFlow = linkFlowGroup.selectAll<SVGLineElement, GraphLink>("line")
+    // 4b. Update Links (Flow) - NOW USING PATH
+    const linkFlow = linkFlowGroup.selectAll<SVGPathElement, DisplayLink>("path")
         .data(mutableLinks, (d: any) => {
             const s = typeof d.source === 'object' ? d.source.id : d.source;
             const t = typeof d.target === 'object' ? d.target.id : d.target;
             return `${s}-${t}`;
         })
         .join(
-            enter => enter.append("line")
+            enter => enter.append("path")
                 .attr("class", "link-animated")
                 .attr("stroke-width", 2.5)
                 .attr("stroke", getLinkColor)
+                .attr("fill", "none")
                 .attr("stroke-dasharray", "4, 16")
                 .attr("marker-end", (d) => `url(#arrow-${d.effect})`)
-                .attr("stroke-opacity", 0) // Start invisible
+                .attr("stroke-opacity", 0)
                 .call(enter => enter.transition().duration(800).attr("stroke-opacity", 0.8)),
             update => update
                 .attr("stroke", getLinkColor)
@@ -334,7 +357,7 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
         );
 
     // 4c. Update Link Labels
-    const linkLabels = linkLabelGroup.selectAll<SVGGElement, GraphLink>("g")
+    const linkLabels = linkLabelGroup.selectAll<SVGGElement, DisplayLink>("g")
         .data(mutableLinks, (d: any) => {
             const s = typeof d.source === 'object' ? d.source.id : d.source;
             const t = typeof d.target === 'object' ? d.target.id : d.target;
@@ -346,7 +369,6 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
                     .attr("cursor", "default")
                     .style("opacity", 0);
                 
-                // Text
                 const txt = g.append("text")
                     .text((d) => d.relation)
                     .attr("text-anchor", "middle")
@@ -358,7 +380,6 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
                     .style("pointer-events", "none")
                     .style("text-transform", "lowercase");
                 
-                // Background Rect
                 g.insert("rect", "text")
                     .attr("rx", 10)
                     .attr("ry", 10)
@@ -376,9 +397,8 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
             exit => exit.remove()
         );
 
-    // Update rects for labels based on text size
-    // Explicitly declaring 'd' as argument to avoid ReferenceError
-    linkLabels.each(function(d: GraphLink) {
+    // Update rects for labels
+    linkLabels.each(function(d: DisplayLink) {
         const g = d3.select(this);
         const text = g.select("text");
         const rect = g.select("rect");
@@ -391,14 +411,13 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
                 .attr("y", -bbox.height / 2 - padY)
                 .attr("width", bbox.width + padX * 2)
                 .attr("height", bbox.height + padY * 2)
-                // Using 'l' (inherited datum) in callback is safer than relying on closure 'd', although both should work.
                 .attr("stroke", (l: any) => {
-                    const link = l as GraphLink;
+                    const link = l as DisplayLink;
                     if (link.effect === 'positive') return '#86efac';
                     if (link.effect === 'negative') return '#fca5a5';
                     return '#e2e8f0';
                 });
-        } catch (e) { /* ignore if not rendered yet */ }
+        } catch (e) { /* ignore */ }
     });
 
 
@@ -409,7 +428,6 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
             enter => {
                 const g = enter.append("g")
                     .attr("cursor", "pointer")
-                    // Start small and expand
                     .attr("transform", (d) => `translate(${d.x || 0},${d.y || 0}) scale(0)`);
 
                 g.append("circle")
@@ -428,14 +446,11 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
                     .attr("pointer-events", "none")
                     .text((d) => d.label.substring(0, 1).toUpperCase());
                 
-                // Animate expansion
                 g.transition().duration(600).ease(d3.easeBackOut)
                     .attr("transform", (d) => `translate(${d.x || 0},${d.y || 0}) scale(1)`);
-                
                 return g;
             },
             update => {
-                // Update topology styles on existing nodes (e.g., if a leaf becomes a connector or part of sequence)
                 const g = update;
                 g.select("circle")
                     .attr("stroke", (d) => getNodeStyle(d.id).stroke)
@@ -444,7 +459,6 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
             },
             exit => exit.transition().duration(300).attr("transform", "scale(0)").remove()
         )
-        // Re-attach event listeners on merge
         .on("click", (event, d) => {
             event.stopPropagation();
             onNodeClick(d);
@@ -453,8 +467,7 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
             setHoveredNode(d);
             setTooltipPos({ x: event.clientX, y: event.clientY });
             
-            // Local hover highlight (only if not globally highlighted)
-            if (!highlightedNodeIds || highlightedNodeIds.size === 0) {
+            if ((!highlightedNodeIds || highlightedNodeIds.size === 0) && !filterState) {
                 linkBase.transition().duration(200)
                     .attr("stroke-opacity", (l) => (l.source === d || l.target === d) ? 0.6 : 0.05);
                 linkFlow.transition().duration(200)
@@ -469,9 +482,7 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
         .on("mouseout", () => {
             setHoveredNode(null);
             setTooltipPos(null);
-            
-            // Reset styles if no global highlight
-            if (!highlightedNodeIds || highlightedNodeIds.size === 0) {
+            if ((!highlightedNodeIds || highlightedNodeIds.size === 0) && !filterState) {
                 linkBase.transition().duration(200).attr("stroke-opacity", 0.15);
                 linkFlow.transition().duration(200).attr("stroke-opacity", 0.8);
                 linkLabels.transition().duration(200).style("opacity", showLabels ? 1 : 0);
@@ -518,28 +529,76 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
 
     // --- 6. TICK FUNCTION ---
     simulation.on("tick", () => {
-        linkBase
-            .attr("x1", (d: GraphLink) => (d.source as GraphNode).x!)
-            .attr("y1", (d: GraphLink) => (d.source as GraphNode).y!)
-            .attr("x2", (d: GraphLink) => (d.target as GraphNode).x!)
-            .attr("y2", (d: GraphLink) => (d.target as GraphNode).y!);
+        // Calculate Path Data for Links
+        const getPathData = (d: DisplayLink) => {
+             const s = d.source as GraphNode;
+             const t = d.target as GraphNode;
+             const x1 = s.x!, y1 = s.y!;
+             const x2 = t.x!, y2 = t.y!;
+             
+             // If curved, calculate Quadratic Bezier control point
+             if (d.isCurved) {
+                 const dx = x2 - x1;
+                 const dy = y2 - y1;
+                 const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+                 
+                 // Normal vector (-dy, dx)
+                 const nx = -dy / dist;
+                 const ny = dx / dist;
+                 
+                 // Offset determines curvature height
+                 const offset = dist * 0.2; 
+                 
+                 const midX = (x1 + x2) / 2;
+                 const midY = (y1 + y2) / 2;
+                 
+                 const cx = midX + nx * offset;
+                 const cy = midY + ny * offset;
+                 
+                 return `M${x1},${y1} Q${cx},${cy} ${x2},${y2}`;
+             }
+             
+             // Straight line
+             return `M${x1},${y1} L${x2},${y2}`;
+        };
 
-        linkFlow
-            .attr("x1", (d: GraphLink) => (d.source as GraphNode).x!)
-            .attr("y1", (d: GraphLink) => (d.source as GraphNode).y!)
-            .attr("x2", (d: GraphLink) => (d.target as GraphNode).x!)
-            .attr("y2", (d: GraphLink) => (d.target as GraphNode).y!);
+        linkBase.attr("d", getPathData);
+        linkFlow.attr("d", getPathData);
 
-        linkLabels
-            .attr("transform", (d: GraphLink) => {
-                const s = d.source as GraphNode;
-                const t = d.target as GraphNode;
-                const x = (s.x! + t.x!) / 2;
-                const y = (s.y! + t.y!) / 2;
-                return `translate(${x},${y})`;
-            });
+        // Update Label Position
+        linkLabels.attr("transform", (d: DisplayLink) => {
+            const s = d.source as GraphNode;
+            const t = d.target as GraphNode;
+            const x1 = s.x!, y1 = s.y!;
+            const x2 = t.x!, y2 = t.y!;
 
-        // Use transform for nodes to handle both circle and text together
+            let x, y;
+
+            if (d.isCurved) {
+                 const dx = x2 - x1;
+                 const dy = y2 - y1;
+                 const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+                 const nx = -dy / dist;
+                 const ny = dx / dist;
+                 const offset = dist * 0.2;
+                 const midX = (x1 + x2) / 2;
+                 const midY = (y1 + y2) / 2;
+                 const cx = midX + nx * offset;
+                 const cy = midY + ny * offset;
+
+                 // Bezier midpoint (t=0.5)
+                 // B(t) = (1-t)^2 P0 + 2(1-t)t P1 + t^2 P2
+                 // t=0.5 -> 0.25*P0 + 0.5*P1 + 0.25*P2
+                 x = 0.25 * x1 + 0.5 * cx + 0.25 * x2;
+                 y = 0.25 * y1 + 0.5 * cy + 0.25 * y2;
+            } else {
+                 x = (x1 + x2) / 2;
+                 y = (y1 + y2) / 2;
+            }
+            
+            return `translate(${x},${y})`;
+        });
+
         nodes.attr("transform", (d: GraphNode) => `translate(${d.x},${d.y})`);
         
         nodeLabels
@@ -547,7 +606,7 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
             .attr("y", (d: GraphNode) => d.y!);
     });
 
-  }, [data, dimensions, onNodeClick, sequenceNodeIds]); // Re-run if sequence updates
+  }, [data, dimensions, onNodeClick, sequenceNodeIds]);
 
   return (
     <div ref={containerRef} className={`w-full h-full relative ${className}`}>
