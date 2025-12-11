@@ -1,0 +1,5 @@
+{
+  "name": "EcoWeb: Nature Knowledge Graph",
+  "description": "An interactive, AI-powered knowledge graph visualizing the connections within the natural world. Explore ecosystems, species, and biological concepts using Google Gemini.",
+  "requestFramePermissions": []
+}
