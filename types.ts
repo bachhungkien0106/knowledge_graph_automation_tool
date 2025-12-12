@@ -6,6 +6,9 @@ export interface GraphNode extends SimulationNodeDatum {
   group: string; // e.g., 'Animal', 'Plant', 'Concept', 'Habitat'
   description?: string;
   val?: number; // Size weight
+  
+  // Simulation State
+  health?: 'thriving' | 'stable' | 'endangered' | 'extinct';
 
   // D3 Simulation properties
   x?: number;
@@ -28,6 +31,20 @@ export interface GraphLink extends SimulationLinkDatum<GraphNode> {
 export interface GraphData {
   nodes: GraphNode[];
   links: GraphLink[];
+}
+
+export interface ResearchResult {
+  summary: string;
+  newNode: {
+    label: string;
+    group: string;
+    description: string;
+  };
+  connections: {
+    targetNodeLabel: string; // The existing node it connects to
+    relation: string;
+    effect: RelationEffect;
+  }[];
 }
 
 export enum NodeGroup {

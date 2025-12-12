@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { GraphData, GraphNode, GraphLink, FetchStatus } from './types';
-import { fetchInitialGraph, fetchNodeDetails, expandNode, generateGraphFromText } from './services/geminiService';
+import { GraphData, GraphNode, GraphLink, FetchStatus, ResearchResult } from './types';
+import { fetchInitialGraph, fetchNodeDetails, expandNode, generateGraphFromText, simulateEcosystemChange, researchExternalConnection, ImpactResult } from './services/geminiService';
 import ForceGraph from './components/ForceGraph';
 import InfoPanel from './components/InfoPanel';
 import Legend from './components/Legend';
 import NoteModal from './components/NoteModal';
 import GraphStats from './components/GraphStats';
-import { Search, Loader2, Sparkles, AlertCircle, Eye, EyeOff, Route, X, FileText, ArrowRight, Undo, BarChart3, Zap } from 'lucide-react';
+import ResearchModal from './components/ResearchModal';
+import { Search, Loader2, Sparkles, AlertCircle, Eye, EyeOff, Route, X, FileText, ArrowRight, Undo, BarChart3, Zap, Activity, Skull, Microscope } from 'lucide-react';
 
 export type FilterState = { type: 'group' | 'effect', value: string } | null;
 
@@ -21,8 +22,15 @@ const App: React.FC = () => {
   const [detailsStatus, setDetailsStatus] = useState<FetchStatus>('idle');
   const [expandStatus, setExpandStatus] = useState<FetchStatus>('idle');
   const [showLabels, setShowLabels] = useState(true);
+  
+  // Modals
   const [isNoteModalOpen, setIsNoteModalOpen] = useState(false);
   const [isStatsOpen, setIsStatsOpen] = useState(false);
+  const [isResearchModalOpen, setIsResearchModalOpen] = useState(false);
+
+  // Research State
+  const [researchStatus, setResearchStatus] = useState<FetchStatus>('idle');
+  const [researchResult, setResearchResult] = useState<ResearchResult | null>(null);
 
   // Fun / Physics State
   const [filterState, setFilterState] = useState<FilterState>(null);
@@ -30,8 +38,12 @@ const App: React.FC = () => {
 
   // Pathfinding / Filtering Mode State
   const [isPathMode, setIsPathMode] = useState(false);
-  // Replaces simple start/end with a sequence of nodes
   const [pathSequence, setPathSequence] = useState<GraphNode[]>([]);
+
+  // Impact Simulation Mode State
+  const [isSimMode, setIsSimMode] = useState(false);
+  const [simulationResult, setSimulationResult] = useState<ImpactResult | null>(null);
+  const [isSimulating, setIsSimulating] = useState(false);
   
   // Search State
   const [searchQuery, setSearchQuery] = useState('');
@@ -50,17 +62,15 @@ const App: React.FC = () => {
     links.forEach(l => {
         const s = typeof l.source === 'object' ? (l.source as any).id : l.source;
         const t = typeof l.target === 'object' ? (l.target as any).id : l.target;
-        const key = `${s}-${t}`; // Must match ForceGraph key generation logic
+        const key = `${s}-${t}`; 
 
         if (!adjacency[s]) adjacency[s] = [];
         if (!adjacency[t]) adjacency[t] = [];
         
-        // Add bidirectional connections for traversal
         adjacency[s].push({ target: t, linkKey: key });
         adjacency[t].push({ target: s, linkKey: key });
     });
 
-    // BFS
     const queue = [{ current: startId, pathNodes: [startId], pathLinks: [] as string[] }];
     const visited = new Set([startId]);
 
@@ -88,7 +98,7 @@ const App: React.FC = () => {
     return null; // No path
   }, []);
 
-  // Compute the total path from the sequence
+  // Compute the total path
   const pathResult = useMemo(() => {
     if (pathSequence.length < 2) return null;
 
@@ -108,7 +118,6 @@ const App: React.FC = () => {
         }
     }
 
-    // Always ensure the selected waypoints are in the node set, even if isolated
     pathSequence.forEach(n => allNodes.add(n.id));
 
     return segmentsFound > 0 ? { nodes: allNodes, links: allLinks } : null;
@@ -118,35 +127,30 @@ const App: React.FC = () => {
   const { highlightedNodeIds, highlightedLinkIds } = useMemo(() => {
     if (!isPathMode) return { highlightedNodeIds: null, highlightedLinkIds: null };
     
-    // If we have calculated paths
     if (pathResult) {
         return { highlightedNodeIds: pathResult.nodes, highlightedLinkIds: pathResult.links };
     }
 
-    // If just selecting nodes (1 or more) but no paths found yet (or just 1 node)
     if (pathSequence.length > 0) {
         const nodes = new Set(pathSequence.map(n => n.id));
         return { highlightedNodeIds: nodes, highlightedLinkIds: null };
     }
     
-    // Nothing selected yet
-    return { 
-        highlightedNodeIds: null, 
-        highlightedLinkIds: null 
-    };
+    return { highlightedNodeIds: null, highlightedLinkIds: null };
   }, [isPathMode, pathResult, pathSequence]);
 
-  // Derived list of sequence IDs for styling waypoints
   const sequenceNodeIds = useMemo(() => pathSequence.map(n => n.id), [pathSequence]);
 
   const handleSearch = async (query: string) => {
     if (!query.trim()) return;
     setGraphStatus('loading');
     setErrorMsg(null);
-    setSelectedNode(null); // Clear selection on new search
-    setSearchQuery(query); // Sync search bar
-    setIsPathMode(false); // Reset mode
+    setSelectedNode(null); 
+    setSearchQuery(query); 
+    setIsPathMode(false); 
     setPathSequence([]);
+    setIsSimMode(false);
+    setSimulationResult(null);
     setFilterState(null);
     
     try {
@@ -166,6 +170,8 @@ const App: React.FC = () => {
     setSelectedNode(null);
     setIsPathMode(false);
     setPathSequence([]);
+    setIsSimMode(false);
+    setSimulationResult(null);
     setFilterState(null);
     
     try {
@@ -182,15 +188,117 @@ const App: React.FC = () => {
     }
   };
 
+  // --- Research Modal Handler ---
+  const handleResearch = async (concept: string) => {
+    setResearchStatus('loading');
+    setResearchResult(null);
+    try {
+        const result = await researchExternalConnection(concept, graphData.nodes);
+        setResearchResult(result);
+        setResearchStatus('success');
+    } catch (e) {
+        console.error(e);
+        setResearchStatus('error');
+    }
+  };
+
+  const handleAddResearchToGraph = () => {
+    if (!researchResult) return;
+
+    setGraphData(prev => {
+        // Create new node object
+        const newNode: GraphNode = {
+            id: researchResult.newNode.label.toLowerCase().replace(/\s+/g, '-'),
+            label: researchResult.newNode.label,
+            group: researchResult.newNode.group,
+            description: researchResult.newNode.description,
+            // Random start position near center
+            x: 0,
+            y: 0
+        };
+
+        // Create new links
+        const newLinks: GraphLink[] = [];
+        researchResult.connections.forEach(conn => {
+            // Find existing node ID by label (case insensitive check)
+            const targetNode = prev.nodes.find(n => n.label.toLowerCase() === conn.targetNodeLabel.toLowerCase());
+            
+            if (targetNode) {
+                newLinks.push({
+                    source: newNode.id,
+                    target: targetNode.id,
+                    relation: conn.relation,
+                    effect: conn.effect
+                } as any); // Cast because D3 expects raw objects before simulation runs
+            }
+        });
+
+        // Add node if ID doesn't exist
+        const nodeExists = prev.nodes.some(n => n.id === newNode.id);
+        const nextNodes = nodeExists ? prev.nodes : [...prev.nodes, newNode];
+        
+        return {
+            nodes: nextNodes,
+            links: [...prev.links, ...newLinks]
+        };
+    });
+    
+    setShakeTrigger(prev => prev + 1); // Jolt graph to integrate new node
+  };
+
+
+  // --- Impact Simulation Handler ---
+  const handleSimulateImpact = async (node: GraphNode) => {
+      setIsSimulating(true);
+      setSimulationResult(null);
+      setSelectedNode(null); // Clear panel
+
+      try {
+          // Prepare clean data for API
+          const nodes = graphData.nodes.map(n => ({ id: n.id, label: n.label }));
+          const links = graphData.links.map(l => ({
+              source: typeof l.source === 'object' ? (l.source as any).id : l.source,
+              target: typeof l.target === 'object' ? (l.target as any).id : l.target,
+              relation: l.relation,
+              effect: l.effect
+          }));
+
+          const result = await simulateEcosystemChange(node.label, nodes, links);
+          setSimulationResult(result);
+
+          // Update Graph Data to reflect health
+          setGraphData(prev => ({
+              ...prev,
+              nodes: prev.nodes.map(n => {
+                  const impact = result.impactedNodes.find(i => i.id === n.id);
+                  if (n.id === node.id) return { ...n, health: 'extinct' }; // The removed node
+                  if (impact) return { ...n, health: impact.health };
+                  return { ...n, health: undefined }; // Reset others
+              })
+          }));
+
+      } catch (e) {
+          console.error(e);
+          setErrorMsg("Simulation failed.");
+      } finally {
+          setIsSimulating(false);
+      }
+  };
+
   const onNodeClick = useCallback(async (node: GraphNode) => {
-    // Path Mode Logic
+    // 1. Simulation Mode Logic
+    if (isSimMode) {
+        handleSimulateImpact(node);
+        return;
+    }
+
+    // 2. Path Mode Logic
     if (isPathMode) {
-        // Append to sequence
         setPathSequence(prev => [...prev, node]);
         return;
     }
 
-    // Normal Info Mode
+    // 3. Normal Info Mode
     setSelectedNode(node);
     setDetails(null);
     setDetailsStatus('loading');
@@ -203,7 +311,7 @@ const App: React.FC = () => {
       console.error(error);
       setDetailsStatus('error');
     }
-  }, [isPathMode]);
+  }, [isPathMode, isSimMode, graphData]);
 
   const handleExpandNode = async () => {
     if (!selectedNode) return;
@@ -214,11 +322,9 @@ const App: React.FC = () => {
       const newData = await expandNode(selectedNode.label, currentLabels);
 
       setGraphData(prev => {
-        // Merge Logic: prevent duplicates
         const existingNodeIds = new Set((prev.nodes || []).map(n => n.id));
         const newUniqueNodes = (newData.nodes || []).filter(n => !existingNodeIds.has(n.id));
         
-        // Links might reference nodes not in newData but in prev.nodes
         const existingLinkKeys = new Set((prev.links || []).map(l => 
           typeof l.source === 'object' 
             ? `${(l.source as GraphNode).id}-${(l.target as GraphNode).id}` 
@@ -253,14 +359,31 @@ const App: React.FC = () => {
   };
 
   const togglePathMode = () => {
-      const newMode = !isPathMode;
-      setIsPathMode(newMode);
-      setPathSequence([]); // Always reset sequence on toggle
-      setFilterState(null); // Clear filters
-      if (newMode) setSelectedNode(null); // Close info panel when entering path mode
+      setIsPathMode(!isPathMode);
+      setPathSequence([]); 
+      setIsSimMode(false); // Exclusive modes
+      setSimulationResult(null);
+      setFilterState(null);
+      setSelectedNode(null);
+      resetHealth();
   };
 
-  // Helper to remove last node from sequence
+  const toggleSimMode = () => {
+      setIsSimMode(!isSimMode);
+      setSimulationResult(null);
+      setIsPathMode(false); // Exclusive modes
+      setPathSequence([]);
+      setSelectedNode(null);
+      resetHealth();
+  };
+
+  const resetHealth = () => {
+      setGraphData(prev => ({
+          ...prev,
+          nodes: prev.nodes.map(n => ({ ...n, health: undefined }))
+      }));
+  };
+
   const undoLastPathStep = () => {
       setPathSequence(prev => prev.slice(0, -1));
   };
@@ -292,8 +415,8 @@ const App: React.FC = () => {
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handleSearch(searchQuery)}
-                  placeholder="Explore (e.g., Ocean, Rainforest)..."
-                  className="bg-transparent border-none outline-none text-slate-700 placeholder-slate-400 px-3 py-1.5 w-48 md:w-64 text-sm font-medium"
+                  placeholder="Explore (e.g., Ocean)..."
+                  className="bg-transparent border-none outline-none text-slate-700 placeholder-slate-400 px-3 py-1.5 w-32 md:w-64 text-sm font-medium"
                 />
                 <button 
                   onClick={() => handleSearch(searchQuery)}
@@ -304,7 +427,7 @@ const App: React.FC = () => {
                 </button>
               </div>
 
-              {/* Tools: Path Mode & Labels */}
+              {/* Tools */}
               <div className="flex gap-2 bg-white/90 backdrop-blur-md p-1.5 rounded-xl shadow-lg border border-slate-200">
                   <button 
                     onClick={() => setIsNoteModalOpen(true)}
@@ -312,6 +435,14 @@ const App: React.FC = () => {
                     title="Visualize my Notes"
                   >
                     <FileText size={20} />
+                  </button>
+
+                  <button 
+                    onClick={() => setIsResearchModalOpen(true)}
+                    className="p-2 rounded-lg text-slate-600 hover:text-purple-600 hover:bg-purple-50 transition-colors"
+                    title="Research Assistant"
+                  >
+                    <Microscope size={20} />
                   </button>
                   
                   <button 
@@ -330,6 +461,14 @@ const App: React.FC = () => {
                     title="Jolt: Shake the ecosystem"
                   >
                     <Zap size={20} className={shakeTrigger > 0 ? "fill-amber-500" : ""} />
+                  </button>
+
+                  <button 
+                    onClick={toggleSimMode}
+                    className={`p-2 rounded-lg transition-colors ${isSimMode ? 'bg-red-100 text-red-600' : 'text-slate-600 hover:bg-slate-50'}`}
+                    title={isSimMode ? "Exit Impact Simulation" : "Simulate Impact (Remove a Species)"}
+                  >
+                    <Activity size={20} className={isSimulating ? 'animate-pulse' : ''} />
                   </button>
 
                   <button 
@@ -401,6 +540,39 @@ const App: React.FC = () => {
           </div>
       )}
 
+      {/* Simulation Banner */}
+      {isSimMode && (
+          <div className="absolute top-24 left-0 right-0 z-20 pointer-events-auto animate-in slide-in-from-top-4 fade-in flex justify-center px-4">
+              <div className="bg-red-950/90 text-white backdrop-blur-md px-5 py-3 rounded-2xl shadow-xl flex items-center gap-4 border border-red-800 max-w-full md:max-w-2xl">
+                  <div className="shrink-0 bg-red-900 p-2 rounded-full">
+                      {isSimulating ? <Loader2 size={18} className="animate-spin text-red-300"/> : <Skull size={18} className="text-red-300" />}
+                  </div>
+                  
+                  <div className="flex-1">
+                      {isSimulating ? (
+                           <span className="text-sm font-medium text-red-100">Calculating ecosystem collapse scenario...</span>
+                      ) : simulationResult ? (
+                           <div className="flex flex-col">
+                               <span className="text-sm font-bold text-white mb-0.5">Impact Analysis Complete</span>
+                               <span className="text-xs text-red-200">{simulationResult.summary}</span>
+                           </div>
+                      ) : (
+                           <span className="text-sm font-medium text-red-100">Click a species (Node) to REMOVE it from the ecosystem.</span>
+                      )}
+                  </div>
+                  
+                  {simulationResult && (
+                      <button 
+                        onClick={resetHealth}
+                        className="px-3 py-1 bg-red-800 hover:bg-red-700 text-xs rounded-lg transition-colors border border-red-700"
+                      >
+                          Reset
+                      </button>
+                  )}
+              </div>
+          </div>
+      )}
+
       {/* Main Graph Area */}
       <main className="flex-1 w-full h-full relative">
         {graphStatus === 'loading' && (!graphData.nodes || graphData.nodes.length === 0) ? (
@@ -452,14 +624,22 @@ const App: React.FC = () => {
         onClose={() => setIsNoteModalOpen(false)} 
         onSubmit={handleNoteSubmit} 
       />
+      <ResearchModal
+        isOpen={isResearchModalOpen}
+        onClose={() => setIsResearchModalOpen(false)}
+        onResearch={handleResearch}
+        status={researchStatus}
+        result={researchResult}
+        onAddToGraph={handleAddResearchToGraph}
+      />
       <GraphStats 
         isOpen={isStatsOpen} 
         onClose={() => setIsStatsOpen(false)} 
         data={graphData} 
       />
       
-      {/* Hide InfoPanel if in Path Mode to reduce clutter */}
-      {!isPathMode && (
+      {/* Hide InfoPanel if in Path Mode or Sim Mode to reduce clutter */}
+      {!isPathMode && !isSimMode && (
           <InfoPanel 
             selectedNode={selectedNode}
             details={details}

@@ -70,7 +70,7 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
     
     // Default Opacities
     const NODE_OPACITY_ACTIVE = 1;
-    const NODE_OPACITY_DIMMED = 0.1;
+    const NODE_OPACITY_DIMMED = 0.15; 
     const LINK_BASE_OPACITY_NORMAL = 0.15;
     const LINK_BASE_OPACITY_ACTIVE = 0.4;
     const LINK_BASE_OPACITY_DIMMED = 0.02;
@@ -121,14 +121,14 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
           return isNodeVisible(d) ? NODE_OPACITY_ACTIVE : NODE_OPACITY_DIMMED;
        });
 
-    // 2. Update Links (Base)
+    // 2. Update Links (Base) -> Switch to PATH
     svg.selectAll<SVGPathElement, DisplayLink>(".links-base path")
        .transition().duration(400)
        .attr("stroke-opacity", (d) => {
           return isLinkVisible(d) ? (hasPathHighlight ? LINK_BASE_OPACITY_ACTIVE : LINK_BASE_OPACITY_NORMAL) : LINK_BASE_OPACITY_DIMMED;
        });
 
-    // 3. Update Links (Flow)
+    // 3. Update Links (Flow) -> Switch to PATH
     svg.selectAll<SVGPathElement, DisplayLink>(".links-flow path")
        .transition().duration(400)
        .attr("stroke-opacity", (d) => {
@@ -148,7 +148,6 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
   // Effect for Shake / Jolt Physics
   useEffect(() => {
       if (shakeTrigger > 0 && simulationRef.current) {
-          // Re-heat simulation
           simulationRef.current.alpha(0.8).restart();
       }
   }, [shakeTrigger]);
@@ -162,18 +161,19 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
     const { w, h } = dimensions;
 
     // --- 1. SETUP (Run Once) ---
-    let container = svg.select<SVGGElement>(".zoom-container");
-    
-    if (container.empty()) {
-        const defs = svg.append("defs");
+    let defs = svg.select("defs");
+    if (defs.empty()) {
+        defs = svg.append("defs");
+        
+        // A. Define Markers
         const createMarker = (id: string, color: string) => {
             defs.append("marker")
                 .attr("id", id)
                 .attr("viewBox", "0 -5 10 10")
-                .attr("refX", 26) // Pushed back slightly to accommodate node radius
+                .attr("refX", 28) // Pushed back for larger nodes
                 .attr("refY", 0)
-                .attr("markerWidth", 8)
-                .attr("markerHeight", 8)
+                .attr("markerWidth", 6)
+                .attr("markerHeight", 6)
                 .attr("orient", "auto")
                 .append("path")
                 .attr("d", "M0,-5L10,0L0,5")
@@ -183,6 +183,101 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
         createMarker("arrow-negative", "#ef4444");
         createMarker("arrow-neutral", "#94a3b8");
 
+        // B. Define Gradients (Sphere effect)
+        Object.entries(GROUP_COLORS).forEach(([group, color]) => {
+            const safeId = group.replace(/\s+/g, '-');
+            const grad = defs.append("radialGradient")
+                .attr("id", `grad-${safeId}`)
+                .attr("cx", "30%")
+                .attr("cy", "30%")
+                .attr("r", "70%");
+            
+            const c = d3.color(color);
+            const brighter = c ? c.brighter(1.2).formatHex() : color;
+            const darker = c ? c.darker(0.2).formatHex() : color;
+
+            grad.append("stop")
+                .attr("offset", "0%")
+                .attr("stop-color", brighter);
+            
+            grad.append("stop")
+                .attr("offset", "100%")
+                .attr("stop-color", darker);
+        });
+
+        // C. Define Shadow Filter
+        const filter = defs.append("filter")
+            .attr("id", "drop-shadow")
+            .attr("height", "140%");
+            
+        filter.append("feGaussianBlur")
+            .attr("in", "SourceAlpha")
+            .attr("stdDeviation", 2)
+            .attr("result", "blur");
+            
+        filter.append("feOffset")
+            .attr("in", "blur")
+            .attr("dx", 2)
+            .attr("dy", 2)
+            .attr("result", "offsetBlur");
+        
+        const feMerge = filter.append("feMerge");
+        feMerge.append("feMergeNode").attr("in", "offsetBlur");
+        feMerge.append("feMergeNode").attr("in", "SourceGraphic");
+
+        // D. Define Glow Filter (for dragging)
+        const glow = defs.append("filter")
+            .attr("id", "drag-glow")
+            .attr("height", "300%")
+            .attr("width", "300%")
+            .attr("x", "-100%")
+            .attr("y", "-100%");
+        
+        glow.append("feGaussianBlur")
+            .attr("in", "SourceAlpha")
+            .attr("stdDeviation", 4)
+            .attr("result", "blur");
+            
+        glow.append("feFlood")
+            .attr("flood-color", "#ffffff")
+            .attr("flood-opacity", 0.6)
+            .attr("result", "color");
+            
+        glow.append("feComposite")
+            .attr("in", "color")
+            .attr("in2", "blur")
+            .attr("operator", "in")
+            .attr("result", "coloredBlur");
+
+        const glowMerge = glow.append("feMerge");
+        glowMerge.append("feMergeNode").attr("in", "coloredBlur");
+        glowMerge.append("feMergeNode").attr("in", "SourceGraphic");
+
+        // E. Define Background Pattern
+        const pattern = defs.append("pattern")
+            .attr("id", "bg-dots")
+            .attr("patternUnits", "userSpaceOnUse")
+            .attr("width", 20)
+            .attr("height", 20);
+        
+        pattern.append("circle")
+            .attr("cx", 2)
+            .attr("cy", 2)
+            .attr("r", 1)
+            .attr("fill", "#cbd5e1");
+    }
+
+    if (svg.select(".bg-rect").empty()) {
+        svg.append("rect")
+            .attr("class", "bg-rect")
+            .attr("width", "100%")
+            .attr("height", "100%")
+            .attr("fill", "url(#bg-dots)")
+            .lower();
+    }
+
+    let container = svg.select<SVGGElement>(".zoom-container");
+    if (container.empty()) {
         container = svg.append("g").attr("class", "zoom-container");
         container.append("g").attr("class", "links-base");
         container.append("g").attr("class", "links-flow");
@@ -212,6 +307,7 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
         return { ...n };
     });
 
+    // Handle new node spawning
     const isUpdate = mutableNodes.some(n => oldNodesMap.has(n.id));
     if (isUpdate) {
         mutableNodes.forEach(n => {
@@ -238,7 +334,6 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
     }
 
     // Process Links & Calculate Curvature
-    // We count how many links are between each pair of nodes (A-B)
     const linkCounts: Record<string, number> = {};
     (data.links || []).forEach(l => {
         const s = typeof l.source === 'object' ? (l.source as any).id : l.source;
@@ -252,9 +347,6 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
         const s = typeof l.source === 'object' ? (l.source as any).id : l.source;
         const t = typeof l.target === 'object' ? (l.target as any).id : l.target;
         const key = s < t ? `${s}-${t}` : `${t}-${s}`;
-        
-        // If there is more than 1 link between these nodes (e.g. bidirectional), 
-        // we flag it to be curved.
         l.isCurved = linkCounts[key] > 1;
         return l;
     });
@@ -269,18 +361,35 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
         inDegree.set(t, (inDegree.get(t) || 0) + 1);
     });
 
-    const getNodeStyle = (id: string) => {
+    // Node Style Logic including HEALTH status from simulation
+    const getNodeStyle = (d: GraphNode) => {
+        const id = d.id;
+        
+        // Simulation Health Overrides
+        if (d.health === 'extinct') {
+            return { stroke: '#94a3b8', width: 2, r: 14, filter: 'grayscale(1)', opacity: 0.6, dash: '4,4' };
+        }
+        if (d.health === 'endangered') {
+            return { stroke: '#f97316', width: 4, r: 16, filter: 'none', opacity: 1, dash: 'none' };
+        }
+        if (d.health === 'thriving') {
+            return { stroke: '#ef4444', width: 6, r: 22, filter: 'none', opacity: 1, dash: 'none' };
+        }
+
+        // Default Topology Styles
         if (sequenceNodeIds && sequenceNodeIds.includes(id)) {
              const index = sequenceNodeIds.indexOf(id);
-             if (index === 0) return { stroke: '#3b82f6', width: 5 };
-             if (index === sequenceNodeIds.length - 1) return { stroke: '#f97316', width: 5 };
-             return { stroke: '#eab308', width: 5 };
+             if (index === 0) return { stroke: '#3b82f6', width: 4, r: 18, filter: 'none', opacity: 1, dash: 'none' };
+             if (index === sequenceNodeIds.length - 1) return { stroke: '#f97316', width: 4, r: 18, filter: 'none', opacity: 1, dash: 'none' };
+             return { stroke: '#eab308', width: 4, r: 18, filter: 'none', opacity: 1, dash: 'none' };
         }
+
         const ins = inDegree.get(id) || 0;
         const outs = outDegree.get(id) || 0;
-        if (ins === 0 && outs > 0) return { stroke: '#3b82f6', width: 4 };
-        if (outs === 0 && ins > 0) return { stroke: '#f97316', width: 4 };
-        return { stroke: '#ffffff', width: 2 };
+        if (ins === 0 && outs > 0) return { stroke: '#3b82f6', width: 3, r: 18, filter: 'none', opacity: 1, dash: 'none' };
+        if (outs === 0 && ins > 0) return { stroke: '#f97316', width: 3, r: 18, filter: 'none', opacity: 1, dash: 'none' };
+        
+        return { stroke: '#ffffff', width: 2.5, r: 18, filter: 'none', opacity: 1, dash: 'none' };
     };
 
 
@@ -288,16 +397,16 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
     let simulation = simulationRef.current;
     if (!simulation) {
         simulation = d3.forceSimulation<GraphNode, GraphLink>()
-            .force("charge", d3.forceManyBody().strength(-500))
+            .force("charge", d3.forceManyBody().strength(-600))
             .force("center", d3.forceCenter(0, 0)) 
-            .force("collide", d3.forceCollide(50));
+            .force("collide", d3.forceCollide(60));
         simulationRef.current = simulation;
     }
 
     simulation.nodes(mutableNodes);
     simulation.force("link", d3.forceLink<GraphNode, GraphLink>(mutableLinks)
         .id((d) => d.id)
-        .distance(180) // Increased distance slightly to accommodate curves
+        .distance(200) 
     );
     simulation.alpha(1).restart();
 
@@ -315,16 +424,16 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
         return '#94a3b8';
     };
 
-    // 4a. Update Links (Base) - NOW USING PATH
+    // 4a. Links (Base)
     const linkBase = linkBaseGroup.selectAll<SVGPathElement, DisplayLink>("path")
         .data(mutableLinks, (d: any) => {
             const s = typeof d.source === 'object' ? d.source.id : d.source;
             const t = typeof d.target === 'object' ? d.target.id : d.target;
-            return `${s}-${t}`;
+            return `${s}-${t}-${d.relation}`;
         })
         .join(
             enter => enter.append("path")
-                .attr("stroke-width", 10) // Wider click area
+                .attr("stroke-width", 10) 
                 .attr("stroke", getLinkColor)
                 .attr("fill", "none")
                 .attr("stroke-opacity", 0) 
@@ -333,20 +442,20 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
             exit => exit.remove()
         );
 
-    // 4b. Update Links (Flow) - NOW USING PATH
+    // 4b. Links (Flow)
     const linkFlow = linkFlowGroup.selectAll<SVGPathElement, DisplayLink>("path")
         .data(mutableLinks, (d: any) => {
             const s = typeof d.source === 'object' ? d.source.id : d.source;
             const t = typeof d.target === 'object' ? d.target.id : d.target;
-            return `${s}-${t}`;
+            return `${s}-${t}-${d.relation}`;
         })
         .join(
             enter => enter.append("path")
                 .attr("class", "link-animated")
-                .attr("stroke-width", 2.5)
+                .attr("stroke-width", 2)
                 .attr("stroke", getLinkColor)
                 .attr("fill", "none")
-                .attr("stroke-dasharray", "4, 16")
+                .attr("stroke-dasharray", "4, 12")
                 .attr("marker-end", (d) => `url(#arrow-${d.effect})`)
                 .attr("stroke-opacity", 0)
                 .call(enter => enter.transition().duration(800).attr("stroke-opacity", 0.8)),
@@ -356,12 +465,12 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
             exit => exit.remove()
         );
 
-    // 4c. Update Link Labels
+    // 4c. Link Labels
     const linkLabels = linkLabelGroup.selectAll<SVGGElement, DisplayLink>("g")
         .data(mutableLinks, (d: any) => {
             const s = typeof d.source === 'object' ? d.source.id : d.source;
             const t = typeof d.target === 'object' ? d.target.id : d.target;
-            return `${s}-${t}`;
+            return `${s}-${t}-${d.relation}`;
         })
         .join(
             enter => {
@@ -373,18 +482,19 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
                     .text((d) => d.relation)
                     .attr("text-anchor", "middle")
                     .attr("dy", "0.3em")
-                    .attr("font-size", "8.5px")
-                    .attr("fill", "#0f172a")
-                    .attr("font-weight", "700")
-                    .attr("font-family", "sans-serif")
+                    .attr("font-size", "9px")
+                    .attr("fill", "#334155")
+                    .attr("font-weight", "600")
+                    .attr("font-family", "Inter, sans-serif")
                     .style("pointer-events", "none")
                     .style("text-transform", "lowercase");
                 
                 g.insert("rect", "text")
-                    .attr("rx", 10)
-                    .attr("ry", 10)
-                    .attr("fill", "rgba(255, 255, 255, 0.9)")
-                    .attr("stroke-width", 1.5);
+                    .attr("rx", 6)
+                    .attr("ry", 6)
+                    .attr("fill", "rgba(255, 255, 255, 0.95)")
+                    .attr("stroke-width", 1)
+                    .style("filter", "drop-shadow(0px 1px 1px rgba(0,0,0,0.1))");
                 
                 g.transition().duration(800).style("opacity", showLabels ? 1 : 0);
                 return g;
@@ -397,15 +507,14 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
             exit => exit.remove()
         );
 
-    // Update rects for labels
     linkLabels.each(function(d: DisplayLink) {
         const g = d3.select(this);
         const text = g.select("text");
         const rect = g.select("rect");
         try {
             const bbox = (text.node() as SVGTextElement).getBBox();
-            const padX = 6;
-            const padY = 3;
+            const padX = 8;
+            const padY = 4;
             rect
                 .attr("x", -bbox.width / 2 - padX)
                 .attr("y", -bbox.height / 2 - padY)
@@ -415,13 +524,13 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
                     const link = l as DisplayLink;
                     if (link.effect === 'positive') return '#86efac';
                     if (link.effect === 'negative') return '#fca5a5';
-                    return '#e2e8f0';
+                    return '#cbd5e1';
                 });
         } catch (e) { /* ignore */ }
     });
 
 
-    // 4d. Update Nodes
+    // 4d. Nodes
     const nodes = nodeGroup.selectAll<SVGGElement, GraphNode>("g")
         .data(mutableNodes, (d) => d.id)
         .join(
@@ -431,19 +540,23 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
                     .attr("transform", (d) => `translate(${d.x || 0},${d.y || 0}) scale(0)`);
 
                 g.append("circle")
-                    .attr("r", 16)
-                    .attr("fill", (d) => GROUP_COLORS[d.group] || GROUP_COLORS[NodeGroup.UNKNOWN])
-                    .attr("stroke", (d) => getNodeStyle(d.id).stroke)
-                    .attr("stroke-width", (d) => getNodeStyle(d.id).width);
+                    .attr("r", (d) => getNodeStyle(d).r)
+                    .attr("fill", (d) => `url(#grad-${d.group.replace(/\s+/g, '-')})`)
+                    .attr("stroke", (d) => getNodeStyle(d).stroke)
+                    .attr("stroke-width", (d) => getNodeStyle(d).width)
+                    .attr("stroke-dasharray", (d) => getNodeStyle(d).dash)
+                    .style("filter", (d) => d.health === 'extinct' ? 'grayscale(1)' : 'url(#drop-shadow)')
+                    .style("opacity", (d) => getNodeStyle(d).opacity);
 
                 g.append("text")
                     .attr("dy", 5)
                     .attr("dx", 0)
                     .attr("text-anchor", "middle")
                     .attr("fill", "white")
-                    .attr("font-size", "11px")
-                    .attr("font-weight", "bold")
+                    .attr("font-size", "12px")
+                    .attr("font-weight", "800")
                     .attr("pointer-events", "none")
+                    .style("text-shadow", "0px 1px 2px rgba(0,0,0,0.3)")
                     .text((d) => d.label.substring(0, 1).toUpperCase());
                 
                 g.transition().duration(600).ease(d3.easeBackOut)
@@ -453,8 +566,13 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
             update => {
                 const g = update;
                 g.select("circle")
-                    .attr("stroke", (d) => getNodeStyle(d.id).stroke)
-                    .attr("stroke-width", (d) => getNodeStyle(d.id).width);
+                    .transition().duration(400)
+                    .attr("r", (d) => getNodeStyle(d).r)
+                    .attr("stroke", (d) => getNodeStyle(d).stroke)
+                    .attr("stroke-width", (d) => getNodeStyle(d).width)
+                    .attr("stroke-dasharray", (d) => getNodeStyle(d).dash)
+                    .style("filter", (d) => d.health === 'extinct' ? 'grayscale(1)' : 'url(#drop-shadow)')
+                    .style("opacity", (d) => getNodeStyle(d).opacity);
                 return g;
             },
             exit => exit.transition().duration(300).attr("transform", "scale(0)").remove()
@@ -473,7 +591,10 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
                 linkFlow.transition().duration(200)
                     .attr("stroke-opacity", (l) => (l.source === d || l.target === d) ? 1 : 0.1);
                 linkLabels.transition().duration(200)
-                    .style("opacity", (l) => (l.source === d || l.target === d) ? 1 : 0.2);
+                    .style("opacity", (l) => {
+                        if (!showLabels) return 0; // Strictly respect the toggle
+                        return (l.source === d || l.target === d) ? 1 : 0.2;
+                    });
             }
         })
         .on("mousemove", (event: MouseEvent) => {
@@ -489,83 +610,99 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
             }
         });
 
-    // 4e. Update Node Labels
+    // 4e. Node Labels
     const nodeLabels = nodeLabelGroup.selectAll<SVGTextElement, GraphNode>("text")
         .data(mutableNodes, (d) => d.id)
         .join(
             enter => enter.append("text")
-                .attr("dx", 20)
-                .attr("dy", 5)
+                .attr("dx", 24)
+                .attr("dy", 6)
                 .text((d) => d.label)
-                .attr("fill", "#1e293b")
-                .attr("font-size", "13px")
-                .attr("font-weight", "600")
+                .attr("fill", "#0f172a")
+                .attr("font-size", "14px")
+                .attr("font-weight", "700")
+                .attr("font-family", "Inter, sans-serif")
                 .style("pointer-events", "none")
-                .style("text-shadow", "2px 2px 0px white, -2px -2px 0px white, 2px -2px 0px white, -2px 2px 0px white")
+                .style("text-shadow", "3px 3px 0px rgba(255,255,255,0.8), -3px -3px 0px rgba(255,255,255,0.8), 3px -3px 0px rgba(255,255,255,0.8), -3px 3px 0px rgba(255,255,255,0.8)")
                 .style("opacity", 0)
                 .call(enter => enter.transition().delay(200).duration(400).style("opacity", 1)),
-            update => update.text((d) => d.label),
+            update => update
+                .text((d) => d.label)
+                .attr("fill", (d) => d.health === 'extinct' ? '#94a3b8' : '#0f172a'),
             exit => exit.remove()
         );
 
     // --- 5. DRAG BEHAVIOR ---
-    const drag = d3.drag<any, GraphNode>()
-        .on("start", (event, d) => {
+    const drag = d3.drag<SVGGElement, GraphNode>()
+        .on("start", function(event, d) {
             if (!event.active) simulation?.alphaTarget(0.3).restart();
             d.fx = d.x;
             d.fy = d.y;
+            
+            const nodeEl = d3.select(this);
+            nodeEl.raise(); // Bring to top to avoid overlapping
+            
+            // Visual feedback: White outline + Glow
+            nodeEl.select("circle")
+                .transition().duration(200)
+                .attr("stroke", "#ffffff")
+                .attr("stroke-width", 6)
+                .style("filter", "url(#drag-glow)");
+                
+            nodeEl.style("cursor", "grabbing");
         })
         .on("drag", (event, d) => {
             d.fx = event.x;
             d.fy = event.y;
         })
-        .on("end", (event, d) => {
+        .on("end", function(event, d) {
             if (!event.active) simulation?.alphaTarget(0);
             d.fx = null;
             d.fy = null;
+            
+            // Restore visual state
+            const style = getNodeStyle(d);
+            const nodeEl = d3.select(this);
+            
+            nodeEl.select("circle")
+                .transition().duration(300)
+                .attr("stroke", style.stroke)
+                .attr("stroke-width", style.width)
+                .style("filter", d.health === 'extinct' ? 'grayscale(1)' : 'url(#drop-shadow)');
+                
+            nodeEl.style("cursor", "pointer");
         });
 
     nodes.call(drag);
 
     // --- 6. TICK FUNCTION ---
     simulation.on("tick", () => {
-        // Calculate Path Data for Links
         const getPathData = (d: DisplayLink) => {
              const s = d.source as GraphNode;
              const t = d.target as GraphNode;
              const x1 = s.x!, y1 = s.y!;
              const x2 = t.x!, y2 = t.y!;
              
-             // If curved, calculate Quadratic Bezier control point
              if (d.isCurved) {
                  const dx = x2 - x1;
                  const dy = y2 - y1;
                  const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-                 
-                 // Normal vector (-dy, dx)
                  const nx = -dy / dist;
                  const ny = dx / dist;
-                 
-                 // Offset determines curvature height
                  const offset = dist * 0.2; 
-                 
                  const midX = (x1 + x2) / 2;
                  const midY = (y1 + y2) / 2;
-                 
                  const cx = midX + nx * offset;
                  const cy = midY + ny * offset;
                  
                  return `M${x1},${y1} Q${cx},${cy} ${x2},${y2}`;
              }
-             
-             // Straight line
              return `M${x1},${y1} L${x2},${y2}`;
         };
 
         linkBase.attr("d", getPathData);
         linkFlow.attr("d", getPathData);
 
-        // Update Label Position
         linkLabels.attr("transform", (d: DisplayLink) => {
             const s = d.source as GraphNode;
             const t = d.target as GraphNode;
@@ -585,17 +722,12 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
                  const midY = (y1 + y2) / 2;
                  const cx = midX + nx * offset;
                  const cy = midY + ny * offset;
-
-                 // Bezier midpoint (t=0.5)
-                 // B(t) = (1-t)^2 P0 + 2(1-t)t P1 + t^2 P2
-                 // t=0.5 -> 0.25*P0 + 0.5*P1 + 0.25*P2
                  x = 0.25 * x1 + 0.5 * cx + 0.25 * x2;
                  y = 0.25 * y1 + 0.5 * cy + 0.25 * y2;
             } else {
                  x = (x1 + x2) / 2;
                  y = (y1 + y2) / 2;
             }
-            
             return `translate(${x},${y})`;
         });
 
@@ -614,7 +746,7 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
       <style>{`
         @keyframes flow-animation {
           from {
-            stroke-dashoffset: 20;
+            stroke-dashoffset: 16;
           }
           to {
             stroke-dashoffset: 0;
@@ -647,6 +779,16 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
           </div>
           <div className="font-bold mb-1">{hoveredNode.label}</div>
           <div className="text-slate-300 text-xs leading-relaxed">
+             {/* Show Health status in tooltip if active */}
+             {hoveredNode.health ? (
+                <div className={`font-bold mb-1 uppercase text-[10px] ${
+                    hoveredNode.health === 'thriving' ? 'text-red-400' :
+                    hoveredNode.health === 'endangered' ? 'text-orange-400' :
+                    hoveredNode.health === 'extinct' ? 'text-slate-400 line-through' : 'text-slate-300'
+                }`}>
+                    Status: {hoveredNode.health}
+                </div>
+             ) : null}
             {hoveredNode.description}
           </div>
         </div>

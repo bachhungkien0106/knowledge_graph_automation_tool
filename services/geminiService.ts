@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { GraphData, NodeGroup } from "../types";
+import { GraphData, NodeGroup, ResearchResult } from "../types";
 
 const apiKey = process.env.API_KEY || '';
 const ai = new GoogleGenAI({ apiKey });
@@ -244,3 +244,144 @@ export const fetchNodeDetails = async (nodeLabel: string): Promise<string> => {
 
   return response.text || "No details available.";
 };
+
+export interface ImpactResult {
+  summary: string;
+  impactedNodes: {
+    id: string;
+    health: 'thriving' | 'endangered' | 'extinct' | 'stable';
+  }[];
+}
+
+export const simulateEcosystemChange = async (
+  removedNodeLabel: string, 
+  allNodes: {id: string, label: string}[],
+  allLinks: {source: string, target: string, relation: string, effect: string}[]
+): Promise<ImpactResult> => {
+  if (!apiKey) throw new Error("API Key not found");
+
+  // Simplify graph for context
+  const nodesList = allNodes.map(n => `"${n.label}" (ID: ${n.id})`).join(", ");
+  const linksList = allLinks.map(l => `${l.source} ${l.relation} ${l.target} (${l.effect})`).slice(0, 30).join("; ");
+
+  const prompt = `
+    A user is simulating an ecosystem collapse scenario. 
+    Scenario: The entity "${removedNodeLabel}" has been REMOVED/WIPED OUT from the ecosystem.
+
+    Based on the following partial ecosystem structure:
+    Nodes: ${nodesList}
+    Links: ${linksList}
+
+    Predict the immediate cascade effects on the REMAINING nodes.
+    Rules:
+    - If a node loses its food source or critical habitat, it becomes 'endangered' or 'extinct'.
+    - If a node loses its predator or competition, it becomes 'thriving' (overpopulation).
+    - If a node is unaffected, it remains 'stable'.
+
+    Return a short 1-sentence summary of the disaster, and a list of specific nodes that change status.
+  `;
+
+  const response = await ai.models.generateContent({
+    model: MODEL_ID,
+    contents: prompt,
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          summary: { type: Type.STRING },
+          impactedNodes: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                id: { type: Type.STRING, description: "Must match the exact ID from the input list" },
+                health: { type: Type.STRING, enum: ['thriving', 'endangered', 'extinct', 'stable'] }
+              },
+              required: ["id", "health"]
+            }
+          }
+        },
+        required: ["summary", "impactedNodes"]
+      }
+    }
+  });
+
+  const text = response.text;
+  if (!text) throw new Error("No data returned from Gemini for simulation");
+
+  try {
+    return JSON.parse(cleanJson(text));
+  } catch (e) {
+    console.error("Simulation parse error", e);
+    return { summary: "Simulation failed.", impactedNodes: [] };
+  }
+};
+
+export const researchExternalConnection = async (
+    targetConcept: string,
+    currentNodes: { label: string }[]
+  ): Promise<ResearchResult> => {
+    if (!apiKey) throw new Error("API Key not found");
+  
+    const nodeList = currentNodes.map(n => n.label).slice(0, 40).join(", ");
+  
+    const prompt = `
+      The user is viewing a nature knowledge graph with these entities: [${nodeList}].
+      
+      The user wants to investigate a NEW, unconnected concept: "${targetConcept}".
+      
+      Tasks:
+      1. Explain in 2-3 sentences how "${targetConcept}" scientifically relates to the existing ecosystem entities listed above.
+      2. Identify specific EXISTING nodes from the list that "${targetConcept}" should connect to.
+      3. Define the new node details for "${targetConcept}".
+      
+      Output strictly JSON.
+    `;
+  
+    const response = await ai.models.generateContent({
+      model: MODEL_ID,
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            summary: { type: Type.STRING, description: "Scientific explanation of the relationship." },
+            newNode: {
+              type: Type.OBJECT,
+              properties: {
+                label: { type: Type.STRING, description: "Capitalized label for the new concept" },
+                group: { type: Type.STRING, enum: Object.values(NodeGroup) },
+                description: { type: Type.STRING, description: "Short description of the new concept" }
+              },
+              required: ["label", "group", "description"]
+            },
+            connections: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  targetNodeLabel: { type: Type.STRING, description: "Must be one of the existing node labels provided in prompt" },
+                  relation: { type: Type.STRING, description: "Active verb, e.g. 'inhibits', 'supports'" },
+                  effect: { type: Type.STRING, enum: ['positive', 'negative', 'neutral'] }
+                },
+                required: ["targetNodeLabel", "relation", "effect"]
+              }
+            }
+          },
+          required: ["summary", "newNode", "connections"]
+        }
+      }
+    });
+  
+    const text = response.text;
+    if (!text) throw new Error("No data returned from Gemini for research");
+  
+    try {
+      return JSON.parse(cleanJson(text));
+    } catch (e) {
+      console.error("Research parse error", e);
+      throw new Error("Failed to parse research results.");
+    }
+  };
