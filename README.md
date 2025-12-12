@@ -131,5 +131,4 @@ Click the **Microscope Icon**. Type a concept (e.g., "Humans"). The AI will dete
 *   **Icons:** Lucide React
 
 ---
-
-*Powered by Google Gemini*
+create by AI but editor , re-checking by human 
