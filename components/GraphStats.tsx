@@ -36,7 +36,7 @@ const GraphStats: React.FC<GraphStatsProps> = ({ isOpen, onClose, data }) => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl w-full max-w-md border border-slate-200 overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
+      <div className="bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl w-full max-w-lg border border-slate-200 overflow-hidden flex flex-col animate-in zoom-in-95 duration-200 max-h-[85vh]">
         
         {/* Header */}
         <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/80">
@@ -55,7 +55,7 @@ const GraphStats: React.FC<GraphStatsProps> = ({ isOpen, onClose, data }) => {
         </div>
 
         {/* Content */}
-        <div className="p-6 flex flex-col gap-6">
+        <div className="p-6 flex flex-col gap-6 overflow-y-auto">
             {/* KPI Grid */}
             <div className="grid grid-cols-3 gap-4">
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 flex flex-col items-center justify-center text-center shadow-sm">
@@ -75,33 +75,31 @@ const GraphStats: React.FC<GraphStatsProps> = ({ isOpen, onClose, data }) => {
                 </div>
             </div>
 
-            {/* Distribution */}
-            <div>
-                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">
-                    Ecological Composition
-                </h3>
-                <div className="flex flex-col gap-3 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-                    {stats.groups.map((g) => (
-                        <div key={g.group} className="flex flex-col gap-1.5">
-                            <div className="flex justify-between items-end text-xs">
-                                <span className="font-semibold text-slate-700">{g.group}</span>
-                                <span className="text-slate-500 font-medium">{g.count} ({Math.round(g.percentage)}%)</span>
+            <div className="flex flex-col gap-4">
+                {/* Distribution */}
+                <div>
+                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+                        Ecological Composition
+                    </h3>
+                    <div className="flex flex-col gap-3">
+                        {stats.groups.map((g) => (
+                            <div key={g.group} className="flex flex-col gap-1.5">
+                                <div className="flex justify-between items-end text-xs">
+                                    <span className="font-semibold text-slate-700">{g.group}</span>
+                                    <span className="text-slate-500 font-medium">{g.count} ({Math.round(g.percentage)}%)</span>
+                                </div>
+                                <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                                    <div 
+                                        className="h-full rounded-full transition-all duration-700 ease-out"
+                                        style={{ width: `${g.percentage}%`, backgroundColor: g.color }}
+                                    />
+                                </div>
                             </div>
-                            <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
-                                <div 
-                                    className="h-full rounded-full transition-all duration-700 ease-out"
-                                    style={{ width: `${g.percentage}%`, backgroundColor: g.color }}
-                                />
-                            </div>
-                        </div>
-                    ))}
-                    {stats.groups.length === 0 && (
-                        <div className="text-center py-4 text-slate-400 text-sm italic">
-                            No data available. Try searching for a topic.
-                        </div>
-                    )}
+                        ))}
+                    </div>
                 </div>
             </div>
+
         </div>
       </div>
     </div>

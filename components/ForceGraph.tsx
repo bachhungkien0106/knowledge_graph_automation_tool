@@ -179,8 +179,8 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
                 .attr("d", "M0,-5L10,0L0,5")
                 .attr("fill", color);
         };
-        createMarker("arrow-positive", "#22c55e");
-        createMarker("arrow-negative", "#ef4444");
+        createMarker("arrow-positive", "#10b981"); // Green for correlation
+        createMarker("arrow-negative", "#ef4444"); // Red for inverse
         createMarker("arrow-neutral", "#94a3b8");
 
         // B. Define Gradients (Sphere effect)
@@ -239,7 +239,7 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
             .attr("result", "blur");
             
         glow.append("feFlood")
-            .attr("flood-color", "#ffffff")
+            .attr("flood-color", "#3b82f6") // Blue glow
             .attr("flood-opacity", 0.6)
             .attr("result", "color");
             
@@ -284,6 +284,7 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
         container.append("g").attr("class", "link-labels");
         container.append("g").attr("class", "nodes");
         container.append("g").attr("class", "node-labels");
+        container.append("g").attr("class", "path-labels");
 
         const zoom = d3.zoom<SVGSVGElement, unknown>()
             .scaleExtent([0.1, 4])
@@ -361,35 +362,44 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
         inDegree.set(t, (inDegree.get(t) || 0) + 1);
     });
 
-    // Node Style Logic including HEALTH status from simulation
+    // Node Style Logic including SENTIMENT status from simulation
     const getNodeStyle = (d: GraphNode) => {
         const id = d.id;
         
-        // Simulation Health Overrides
-        if (d.health === 'extinct') {
-            return { stroke: '#94a3b8', width: 2, r: 14, filter: 'grayscale(1)', opacity: 0.6, dash: '4,4' };
-        }
-        if (d.health === 'endangered') {
-            return { stroke: '#f97316', width: 4, r: 16, filter: 'none', opacity: 1, dash: 'none' };
-        }
-        if (d.health === 'thriving') {
-            return { stroke: '#ef4444', width: 6, r: 22, filter: 'none', opacity: 1, dash: 'none' };
+        // Base size logic based on Rank (PageRank) or Degree (Centrality)
+        let baseRadius = 18;
+        
+        if (d.rank !== undefined) {
+             // Map rank 0-100 to size 16-35
+             baseRadius = 16 + (d.rank * 0.2);
+        } else {
+            // Fallback to simple topology for size if rank is missing
+            const ins = inDegree.get(id) || 0;
+            const outs = outDegree.get(id) || 0;
+            if (ins > 5 || outs > 5) baseRadius = 24; // Hub / Macro Factor
+            else if (ins + outs < 2) baseRadius = 16; // Isolated Asset
         }
 
-        // Default Topology Styles
+        // Simulation Sentiment Overrides (Bullish/Bearish)
+        if (d.sentiment === 'bearish') {
+            return { stroke: '#ef4444', width: 4, r: baseRadius, filter: 'none', opacity: 1, dash: 'none' };
+        }
+        if (d.sentiment === 'bullish') {
+            return { stroke: '#10b981', width: 4, r: baseRadius * 1.1, filter: 'none', opacity: 1, dash: 'none' };
+        }
+        if (d.sentiment === 'volatile') {
+            return { stroke: '#f59e0b', width: 4, r: baseRadius, filter: 'none', opacity: 1, dash: '2,2' };
+        }
+
+        // Default Styles based on Selection/Paths
         if (sequenceNodeIds && sequenceNodeIds.includes(id)) {
              const index = sequenceNodeIds.indexOf(id);
-             if (index === 0) return { stroke: '#3b82f6', width: 4, r: 18, filter: 'none', opacity: 1, dash: 'none' };
-             if (index === sequenceNodeIds.length - 1) return { stroke: '#f97316', width: 4, r: 18, filter: 'none', opacity: 1, dash: 'none' };
-             return { stroke: '#eab308', width: 4, r: 18, filter: 'none', opacity: 1, dash: 'none' };
+             if (index === 0) return { stroke: '#3b82f6', width: 4, r: baseRadius, filter: 'none', opacity: 1, dash: 'none' };
+             if (index === sequenceNodeIds.length - 1) return { stroke: '#f97316', width: 4, r: baseRadius, filter: 'none', opacity: 1, dash: 'none' };
+             return { stroke: '#eab308', width: 4, r: baseRadius, filter: 'none', opacity: 1, dash: 'none' };
         }
-
-        const ins = inDegree.get(id) || 0;
-        const outs = outDegree.get(id) || 0;
-        if (ins === 0 && outs > 0) return { stroke: '#3b82f6', width: 3, r: 18, filter: 'none', opacity: 1, dash: 'none' };
-        if (outs === 0 && ins > 0) return { stroke: '#f97316', width: 3, r: 18, filter: 'none', opacity: 1, dash: 'none' };
         
-        return { stroke: '#ffffff', width: 2.5, r: 18, filter: 'none', opacity: 1, dash: 'none' };
+        return { stroke: '#ffffff', width: 2.5, r: baseRadius, filter: 'none', opacity: 1, dash: 'none' };
     };
 
 
@@ -399,7 +409,7 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
         simulation = d3.forceSimulation<GraphNode, GraphLink>()
             .force("charge", d3.forceManyBody().strength(-600))
             .force("center", d3.forceCenter(0, 0)) 
-            .force("collide", d3.forceCollide(60));
+            .force("collide", d3.forceCollide(35)); // Static collision
         simulationRef.current = simulation;
     }
 
@@ -417,10 +427,11 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
     const linkLabelGroup = container.select(".link-labels");
     const nodeGroup = container.select(".nodes");
     const nodeLabelGroup = container.select(".node-labels");
+    const pathLabelGroup = container.select(".path-labels");
 
     const getLinkColor = (d: DisplayLink) => {
-        if (d.effect === 'positive') return '#22c55e';
-        if (d.effect === 'negative') return '#ef4444';
+        if (d.effect === 'positive') return '#10b981'; // Green for correlation
+        if (d.effect === 'negative') return '#ef4444'; // Red for inverse/hedge
         return '#94a3b8';
     };
 
@@ -522,7 +533,7 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
                 .attr("height", bbox.height + padY * 2)
                 .attr("stroke", (l: any) => {
                     const link = l as DisplayLink;
-                    if (link.effect === 'positive') return '#86efac';
+                    if (link.effect === 'positive') return '#10b981';
                     if (link.effect === 'negative') return '#fca5a5';
                     return '#cbd5e1';
                 });
@@ -545,7 +556,7 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
                     .attr("stroke", (d) => getNodeStyle(d).stroke)
                     .attr("stroke-width", (d) => getNodeStyle(d).width)
                     .attr("stroke-dasharray", (d) => getNodeStyle(d).dash)
-                    .style("filter", (d) => d.health === 'extinct' ? 'grayscale(1)' : 'url(#drop-shadow)')
+                    .style("filter", (d) => d.sentiment === 'bearish' ? 'grayscale(0.5)' : 'url(#drop-shadow)')
                     .style("opacity", (d) => getNodeStyle(d).opacity);
 
                 g.append("text")
@@ -557,7 +568,7 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
                     .attr("font-weight", "800")
                     .attr("pointer-events", "none")
                     .style("text-shadow", "0px 1px 2px rgba(0,0,0,0.3)")
-                    .text((d) => d.label.substring(0, 1).toUpperCase());
+                    .text((d) => (d.ticker || d.label.substring(0, 3)).toUpperCase());
                 
                 g.transition().duration(600).ease(d3.easeBackOut)
                     .attr("transform", (d) => `translate(${d.x || 0},${d.y || 0}) scale(1)`);
@@ -571,8 +582,10 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
                     .attr("stroke", (d) => getNodeStyle(d).stroke)
                     .attr("stroke-width", (d) => getNodeStyle(d).width)
                     .attr("stroke-dasharray", (d) => getNodeStyle(d).dash)
-                    .style("filter", (d) => d.health === 'extinct' ? 'grayscale(1)' : 'url(#drop-shadow)')
+                    .style("filter", (d) => d.sentiment === 'bearish' ? 'grayscale(0.5)' : 'url(#drop-shadow)')
                     .style("opacity", (d) => getNodeStyle(d).opacity);
+                    
+                g.select("text").text((d) => (d.ticker || d.label.substring(0, 3)).toUpperCase());
                 return g;
             },
             exit => exit.transition().duration(300).attr("transform", "scale(0)").remove()
@@ -628,9 +641,61 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
                 .call(enter => enter.transition().delay(200).duration(400).style("opacity", 1)),
             update => update
                 .text((d) => d.label)
-                .attr("fill", (d) => d.health === 'extinct' ? '#94a3b8' : '#0f172a'),
+                .attr("fill", (d) => d.sentiment === 'bearish' ? '#ef4444' : '#0f172a'),
             exit => exit.remove()
         );
+    
+    // 4f. Path Labels (START/END)
+    const pathNodes = mutableNodes.filter(n => {
+        if (!sequenceNodeIds || sequenceNodeIds.length === 0) return false;
+        const index = sequenceNodeIds.indexOf(n.id);
+        return index === 0 || (sequenceNodeIds.length > 1 && index === sequenceNodeIds.length - 1);
+    }).map(n => ({
+        ...n,
+        pathType: sequenceNodeIds.indexOf(n.id) === 0 ? 'START' : 'END'
+    }));
+
+    const pathLabels = pathLabelGroup.selectAll<SVGGElement, any>("g")
+        .data(pathNodes, (d) => d.id)
+        .join(
+            enter => {
+                const g = enter.append("g")
+                    .style("pointer-events", "none")
+                    .style("opacity", 0);
+                
+                g.append("rect")
+                    .attr("rx", 4)
+                    .attr("ry", 4)
+                    .attr("height", 18);
+                    
+                g.append("text")
+                    .attr("fill", "white")
+                    .attr("font-size", "10px")
+                    .attr("font-weight", "800")
+                    .attr("text-anchor", "middle")
+                    .attr("dy", "0.35em") // vertical center
+                    .attr("y", 9); // half height relative to rect top (0)
+
+                g.transition().duration(400).style("opacity", 1);
+                return g;
+            },
+            update => {
+                update.transition().duration(400).style("opacity", 1);
+                return update;
+            },
+            exit => exit.transition().duration(200).style("opacity", 0).remove()
+        );
+
+    // Update attributes for both enter and update selections
+    pathLabels.select("rect")
+        .attr("fill", (d: any) => d.pathType === 'START' ? '#3b82f6' : '#f97316')
+        .attr("width", (d: any) => d.pathType === 'START' ? 42 : 36)
+        .attr("x", (d: any) => d.pathType === 'START' ? -21 : -18)
+        .attr("y", -32); // Position above node
+
+    pathLabels.select("text")
+        .text((d: any) => d.pathType)
+        .attr("y", -23); 
 
     // --- 5. DRAG BEHAVIOR ---
     const drag = d3.drag<SVGGElement, GraphNode>()
@@ -668,7 +733,7 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
                 .transition().duration(300)
                 .attr("stroke", style.stroke)
                 .attr("stroke-width", style.width)
-                .style("filter", d.health === 'extinct' ? 'grayscale(1)' : 'url(#drop-shadow)');
+                .style("filter", d.sentiment === 'bearish' ? 'grayscale(0.5)' : 'url(#drop-shadow)');
                 
             nodeEl.style("cursor", "pointer");
         });
@@ -736,6 +801,8 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
         nodeLabels
             .attr("x", (d: GraphNode) => d.x!)
             .attr("y", (d: GraphNode) => d.y!);
+            
+        pathLabels.attr("transform", (d: GraphNode) => `translate(${d.x},${d.y})`);
     });
 
   }, [data, dimensions, onNodeClick, sequenceNodeIds]);
@@ -777,16 +844,17 @@ const ForceGraph: React.FC<ForceGraphProps> = ({
           <div className="font-semibold text-emerald-400 text-xs uppercase tracking-wider mb-1">
             {hoveredNode.group}
           </div>
-          <div className="font-bold mb-1">{hoveredNode.label}</div>
+          <div className="font-bold mb-1">{hoveredNode.label} {hoveredNode.ticker ? `(${hoveredNode.ticker})` : ''}</div>
+          
           <div className="text-slate-300 text-xs leading-relaxed">
-             {/* Show Health status in tooltip if active */}
-             {hoveredNode.health ? (
+             {/* Show Status in tooltip if active */}
+             {hoveredNode.sentiment ? (
                 <div className={`font-bold mb-1 uppercase text-[10px] ${
-                    hoveredNode.health === 'thriving' ? 'text-red-400' :
-                    hoveredNode.health === 'endangered' ? 'text-orange-400' :
-                    hoveredNode.health === 'extinct' ? 'text-slate-400 line-through' : 'text-slate-300'
+                    hoveredNode.sentiment === 'bearish' ? 'text-red-400' :
+                    hoveredNode.sentiment === 'bullish' ? 'text-green-400' :
+                    'text-orange-400'
                 }`}>
-                    Status: {hoveredNode.health}
+                    Sentiment: {hoveredNode.sentiment}
                 </div>
              ) : null}
             {hoveredNode.description}

@@ -1,7 +1,6 @@
-
 import React from 'react';
 import { GraphNode, GROUP_COLORS, FetchStatus } from '../types';
-import { X, ExternalLink, Leaf, Info, RefreshCw, Crosshair } from 'lucide-react';
+import { X, ExternalLink, RefreshCw, Crosshair, TrendingUp, Info } from 'lucide-react';
 
 interface InfoPanelProps {
   selectedNode: GraphNode | null;
@@ -50,25 +49,30 @@ const InfoPanel: React.FC<InfoPanelProps> = ({
 
       {/* Content */}
       <div className="p-6 overflow-y-auto">
-        <h2 className="text-2xl font-bold text-slate-800 mb-2">{selectedNode.label}</h2>
+        <div className="flex justify-between items-start mb-2">
+           <div>
+               <h2 className="text-2xl font-bold text-slate-800">{selectedNode.label}</h2>
+               {selectedNode.ticker && <span className="text-lg font-mono text-slate-500">{selectedNode.ticker}</span>}
+           </div>
+        </div>
         
         {/* Short Description from Graph Data */}
         <p className="text-slate-600 mb-6 italic border-l-4 border-slate-200 pl-3">
-          {selectedNode.description || "A naturally occurring entity."}
+          {selectedNode.description || "A financial asset or concept."}
         </p>
 
         {/* AI Details Section */}
         <div className="mb-6">
           <div className="flex items-center gap-2 mb-2 text-slate-800 font-semibold">
             <Info size={16} className="text-blue-500" />
-            <h3>AI Insights</h3>
+            <h3>Market Analysis</h3>
           </div>
           
           <div className="bg-blue-50 p-4 rounded-lg text-sm text-slate-700 leading-relaxed min-h-[100px]">
             {detailsStatus === 'loading' ? (
               <div className="flex items-center gap-2 text-blue-500 animate-pulse">
                 <RefreshCw size={14} className="animate-spin" />
-                <span>Consulting the field guide...</span>
+                <span>Consulting market data...</span>
               </div>
             ) : detailsStatus === 'error' ? (
               <span className="text-red-500">Failed to load details.</span>
@@ -86,7 +90,7 @@ const InfoPanel: React.FC<InfoPanelProps> = ({
              className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-lg transition-all font-medium shadow-sm hover:shadow-md active:scale-95"
           >
              <Crosshair size={18} />
-             <span>Focus Graph on {selectedNode.label}</span>
+             <span>Pivot Graph on Asset</span>
           </button>
 
           <div className="flex gap-3">
@@ -98,17 +102,17 @@ const InfoPanel: React.FC<InfoPanelProps> = ({
               {expandStatus === 'loading' ? (
                   <RefreshCw size={18} className="animate-spin" />
               ) : (
-                  <Leaf size={18} />
+                  <TrendingUp size={18} />
               )}
-              <span>Expand</span>
+              <span>Find Related</span>
             </button>
             
             <a 
-              href={`https://www.google.com/search?q=${encodeURIComponent(selectedNode.label + " nature")}`} 
+              href={`https://www.google.com/search?q=${encodeURIComponent(selectedNode.label + " stock quote")}`} 
               target="_blank" 
               rel="noopener noreferrer"
               className="flex items-center justify-center p-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-lg transition-colors"
-              title="Search on Google"
+              title="Search on Google Finance"
             >
               <ExternalLink size={20} />
             </a>

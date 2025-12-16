@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { X, Sparkles, FileText } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { X, Sparkles, FileText, Upload, Trash2 } from 'lucide-react';
 
 interface NoteModalProps {
   isOpen: boolean;
@@ -9,6 +9,7 @@ interface NoteModalProps {
 
 const NoteModal: React.FC<NoteModalProps> = ({ isOpen, onClose, onSubmit }) => {
   const [text, setText] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
 
@@ -17,6 +18,34 @@ const NoteModal: React.FC<NoteModalProps> = ({ isOpen, onClose, onSubmit }) => {
       onSubmit(text);
       onClose();
     }
+  };
+
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Basic validation
+    if (file.type && file.type !== "text/plain") {
+       // Allow it to proceed if browser doesn't detect mime type correctly, 
+       // but typically we want text/plain. 
+       // We'll just rely on FileReader reading as text.
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const content = e.target?.result as string;
+      if (content) {
+        setText(content);
+      }
+    };
+    reader.readAsText(file);
+    
+    // Reset value to allow re-uploading the same file if cleared
+    event.target.value = '';
+  };
+
+  const handleClear = () => {
+    setText('');
   };
 
   return (
@@ -31,7 +60,7 @@ const NoteModal: React.FC<NoteModalProps> = ({ isOpen, onClose, onSubmit }) => {
             </div>
             <div>
                 <h2 className="font-bold text-lg">Visualize Your Notes</h2>
-                <p className="text-xs text-slate-500">Paste your text below to generate a custom graph</p>
+                <p className="text-xs text-slate-500">Paste text or upload a file to generate a graph</p>
             </div>
           </div>
           <button 
@@ -40,6 +69,34 @@ const NoteModal: React.FC<NoteModalProps> = ({ isOpen, onClose, onSubmit }) => {
           >
             <X size={20} />
           </button>
+        </div>
+
+        {/* Toolbar */}
+        <div className="px-4 pt-4 flex gap-2">
+            <input 
+                type="file" 
+                accept=".txt" 
+                ref={fileInputRef} 
+                className="hidden" 
+                onChange={handleFileUpload}
+            />
+            <button 
+                onClick={() => fileInputRef.current?.click()}
+                className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-md text-xs font-medium transition-colors"
+            >
+                <Upload size={14} />
+                Load .txt File
+            </button>
+            
+            {text.length > 0 && (
+                <button 
+                    onClick={handleClear}
+                    className="flex items-center gap-2 px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-md text-xs font-medium transition-colors"
+                >
+                    <Trash2 size={14} />
+                    Clear
+                </button>
+            )}
         </div>
 
         {/* Text Area */}

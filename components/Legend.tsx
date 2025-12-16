@@ -37,7 +37,7 @@ const Legend: React.FC<LegendProps> = ({ activeFilter, onFilterChange }) => {
       {/* Node Groups */}
       <div>
         <h3 className="text-xs font-bold text-slate-500 uppercase mb-3 tracking-wider flex justify-between items-center">
-            Entity Types
+            Asset Classes
             <span className="text-[10px] text-slate-400 font-normal normal-case">(Click to filter)</span>
         </h3>
         <div className="flex flex-col gap-1">
@@ -64,15 +64,15 @@ const Legend: React.FC<LegendProps> = ({ activeFilter, onFilterChange }) => {
 
       {/* Relationships */}
       <div>
-        <h3 className="text-xs font-bold text-slate-500 uppercase mb-3 tracking-wider">Relationships</h3>
+        <h3 className="text-xs font-bold text-slate-500 uppercase mb-3 tracking-wider">Correlations</h3>
         <div className="flex flex-col gap-1">
            <button 
              onClick={() => handleEffectClick('positive')}
              className="flex items-center gap-2 px-2 py-1 rounded hover:bg-slate-100 transition-all text-left"
              style={{ opacity: getOpacity('effect', 'positive') }}
            >
-             <div className="w-6 h-0.5 bg-green-500 relative">
-                <div className="absolute right-0 -top-[3px] w-0 h-0 border-t-[4px] border-t-transparent border-b-[4px] border-b-transparent border-l-[6px] border-l-green-500"></div>
+             <div className="w-6 h-0.5 bg-emerald-500 relative">
+                <div className="absolute right-0 -top-[3px] w-0 h-0 border-t-[4px] border-t-transparent border-b-[4px] border-b-transparent border-l-[6px] border-l-emerald-500"></div>
              </div>
              <span className={`text-xs text-slate-700 ${activeFilter?.value === 'positive' ? 'font-bold' : 'font-medium'}`}>Positive (+)</span>
            </button>
@@ -85,7 +85,7 @@ const Legend: React.FC<LegendProps> = ({ activeFilter, onFilterChange }) => {
              <div className="w-6 h-0.5 bg-red-500 relative">
                 <div className="absolute right-0 -top-[3px] w-0 h-0 border-t-[4px] border-t-transparent border-b-[4px] border-b-transparent border-l-[6px] border-l-red-500"></div>
              </div>
-             <span className={`text-xs text-slate-700 ${activeFilter?.value === 'negative' ? 'font-bold' : 'font-medium'}`}>Negative (-)</span>
+             <span className={`text-xs text-slate-700 ${activeFilter?.value === 'negative' ? 'font-bold' : 'font-medium'}`}>Inverse (-)</span>
            </button>
 
            <button 

@@ -1,13 +1,15 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { GraphData, GraphNode, GraphLink, FetchStatus, ResearchResult } from './types';
 import { fetchInitialGraph, fetchNodeDetails, expandNode, generateGraphFromText, simulateEcosystemChange, researchExternalConnection, ImpactResult } from './services/geminiService';
+import { calculateNodeRanks } from './utils/graphAlgorithms';
 import ForceGraph from './components/ForceGraph';
 import InfoPanel from './components/InfoPanel';
 import Legend from './components/Legend';
 import NoteModal from './components/NoteModal';
 import GraphStats from './components/GraphStats';
 import ResearchModal from './components/ResearchModal';
-import { Search, Loader2, Sparkles, AlertCircle, Eye, EyeOff, Route, X, FileText, ArrowRight, Undo, BarChart3, Zap, Activity, Skull, Microscope } from 'lucide-react';
+import AssistantPanel from './components/AssistantPanel';
+import { Search, Loader2, TrendingUp, AlertCircle, Eye, EyeOff, Route, X, FileText, ArrowRight, Undo, BarChart3, Zap, Activity, Skull, Microscope, MessageSquare, Briefcase, Coins, ShieldAlert } from 'lucide-react';
 
 export type FilterState = { type: 'group' | 'effect', value: string } | null;
 
@@ -27,6 +29,7 @@ const App: React.FC = () => {
   const [isNoteModalOpen, setIsNoteModalOpen] = useState(false);
   const [isStatsOpen, setIsStatsOpen] = useState(false);
   const [isResearchModalOpen, setIsResearchModalOpen] = useState(false);
+  const [isAssistantOpen, setIsAssistantOpen] = useState(false);
 
   // Research State
   const [researchStatus, setResearchStatus] = useState<FetchStatus>('idle');
@@ -51,7 +54,7 @@ const App: React.FC = () => {
 
   // Initial Load
   useEffect(() => {
-    handleSearch("Forest Ecosystem");
+    handleSearch("US Tech Sector");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -155,12 +158,13 @@ const App: React.FC = () => {
     
     try {
       const data = await fetchInitialGraph(query);
-      setGraphData(data);
+      const rankedNodes = calculateNodeRanks(data.nodes, data.links);
+      setGraphData({ nodes: rankedNodes, links: data.links });
       setGraphStatus('success');
     } catch (error) {
       console.error(error);
       setGraphStatus('error');
-      setErrorMsg("Failed to generate knowledge graph. Please check your API key or try again.");
+      setErrorMsg("Failed to generate portfolio graph. Please check your API key or try again.");
     }
   };
 
@@ -177,9 +181,10 @@ const App: React.FC = () => {
     try {
       const data = await generateGraphFromText(text);
       if (data.nodes.length === 0) {
-          throw new Error("No valid entities found in the text.");
+          throw new Error("No valid assets found in the text.");
       }
-      setGraphData(data);
+      const rankedNodes = calculateNodeRanks(data.nodes, data.links);
+      setGraphData({ nodes: rankedNodes, links: data.links });
       setGraphStatus('success');
     } catch (error) {
       console.error(error);
@@ -212,38 +217,36 @@ const App: React.FC = () => {
             label: researchResult.newNode.label,
             group: researchResult.newNode.group,
             description: researchResult.newNode.description,
-            // Random start position near center
             x: 0,
             y: 0
         };
 
-        // Create new links
         const newLinks: GraphLink[] = [];
         researchResult.connections.forEach(conn => {
-            // Find existing node ID by label (case insensitive check)
             const targetNode = prev.nodes.find(n => n.label.toLowerCase() === conn.targetNodeLabel.toLowerCase());
-            
             if (targetNode) {
                 newLinks.push({
                     source: newNode.id,
                     target: targetNode.id,
                     relation: conn.relation,
                     effect: conn.effect
-                } as any); // Cast because D3 expects raw objects before simulation runs
+                } as any);
             }
         });
 
-        // Add node if ID doesn't exist
         const nodeExists = prev.nodes.some(n => n.id === newNode.id);
         const nextNodes = nodeExists ? prev.nodes : [...prev.nodes, newNode];
+        const nextLinks = [...prev.links, ...newLinks];
         
+        const rankedNodes = calculateNodeRanks(nextNodes, nextLinks);
+
         return {
-            nodes: nextNodes,
-            links: [...prev.links, ...newLinks]
+            nodes: rankedNodes,
+            links: nextLinks
         };
     });
     
-    setShakeTrigger(prev => prev + 1); // Jolt graph to integrate new node
+    setShakeTrigger(prev => prev + 1); 
   };
 
 
@@ -271,15 +274,15 @@ const App: React.FC = () => {
               ...prev,
               nodes: prev.nodes.map(n => {
                   const impact = result.impactedNodes.find(i => i.id === n.id);
-                  if (n.id === node.id) return { ...n, health: 'extinct' }; // The removed node
-                  if (impact) return { ...n, health: impact.health };
-                  return { ...n, health: undefined }; // Reset others
+                  if (n.id === node.id) return { ...n, sentiment: 'bearish' }; // The crashed node
+                  if (impact) return { ...n, sentiment: impact.health };
+                  return { ...n, sentiment: undefined }; // Reset others
               })
           }));
 
       } catch (e) {
           console.error(e);
-          setErrorMsg("Simulation failed.");
+          setErrorMsg("Stress test failed.");
       } finally {
           setIsSimulating(false);
       }
@@ -336,9 +339,14 @@ const App: React.FC = () => {
           return !existingLinkKeys.has(key);
         });
 
+        const combinedNodes = [...(prev.nodes || []), ...newUniqueNodes];
+        const combinedLinks = [...(prev.links || []), ...newUniqueLinks];
+        
+        const rankedNodes = calculateNodeRanks(combinedNodes, combinedLinks);
+
         return {
-          nodes: [...(prev.nodes || []), ...newUniqueNodes],
-          links: [...(prev.links || []), ...newUniqueLinks]
+          nodes: rankedNodes,
+          links: combinedLinks
         };
       });
 
@@ -380,7 +388,7 @@ const App: React.FC = () => {
   const resetHealth = () => {
       setGraphData(prev => ({
           ...prev,
-          nodes: prev.nodes.map(n => ({ ...n, health: undefined }))
+          nodes: prev.nodes.map(n => ({ ...n, sentiment: undefined }))
       }));
   };
 
@@ -399,12 +407,12 @@ const App: React.FC = () => {
       <header className="absolute top-0 left-0 right-0 p-4 z-10 pointer-events-none">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div className="pointer-events-auto bg-white/90 backdrop-blur-md p-2 rounded-xl shadow-lg border border-slate-200 flex items-center gap-3">
-             <div className="bg-emerald-500 p-2 rounded-lg text-white">
-               <Sparkles size={20} />
+             <div className="bg-blue-600 p-2 rounded-lg text-white">
+               <Briefcase size={20} />
              </div>
              <div>
-               <h1 className="font-bold text-slate-800 text-lg leading-tight">EcoWeb</h1>
-               <p className="text-xs text-slate-500 font-medium">AI-Powered Nature Graph</p>
+               <h1 className="font-bold text-slate-800 text-lg leading-tight">FinGraph</h1>
+               <p className="text-xs text-slate-500 font-medium">Portfolio Intelligence</p>
              </div>
           </div>
 
@@ -415,13 +423,13 @@ const App: React.FC = () => {
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handleSearch(searchQuery)}
-                  placeholder="Explore (e.g., Ocean)..."
+                  placeholder="Portfolio / Sector..."
                   className="bg-transparent border-none outline-none text-slate-700 placeholder-slate-400 px-3 py-1.5 w-32 md:w-64 text-sm font-medium"
                 />
                 <button 
                   onClick={() => handleSearch(searchQuery)}
                   disabled={graphStatus === 'loading'}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white p-2 rounded-lg transition-colors disabled:opacity-50"
+                  className="bg-blue-600 hover:bg-blue-700 text-white p-2 rounded-lg transition-colors disabled:opacity-50"
                 >
                   {graphStatus === 'loading' ? <Loader2 size={18} className="animate-spin"/> : <Search size={18} />}
                 </button>
@@ -432,7 +440,7 @@ const App: React.FC = () => {
                   <button 
                     onClick={() => setIsNoteModalOpen(true)}
                     className="p-2 rounded-lg text-slate-600 hover:text-blue-600 hover:bg-slate-50 transition-colors"
-                    title="Visualize my Notes"
+                    title="Visualize Portfolio from Text"
                   >
                     <FileText size={20} />
                   </button>
@@ -440,7 +448,7 @@ const App: React.FC = () => {
                   <button 
                     onClick={() => setIsResearchModalOpen(true)}
                     className="p-2 rounded-lg text-slate-600 hover:text-purple-600 hover:bg-purple-50 transition-colors"
-                    title="Research Assistant"
+                    title="Asset Research"
                   >
                     <Microscope size={20} />
                   </button>
@@ -448,7 +456,7 @@ const App: React.FC = () => {
                   <button 
                     onClick={() => setIsStatsOpen(true)}
                     className="p-2 rounded-lg text-slate-600 hover:text-indigo-600 hover:bg-slate-50 transition-colors"
-                    title="View Graph Statistics"
+                    title="Portfolio Stats"
                   >
                     <BarChart3 size={20} />
                   </button>
@@ -458,7 +466,7 @@ const App: React.FC = () => {
                   <button 
                     onClick={handleJolt}
                     className="p-2 rounded-lg text-amber-500 hover:text-amber-600 hover:bg-amber-50 transition-colors"
-                    title="Jolt: Shake the ecosystem"
+                    title="Jolt: Reshuffle Graph"
                   >
                     <Zap size={20} className={shakeTrigger > 0 ? "fill-amber-500" : ""} />
                   </button>
@@ -466,7 +474,7 @@ const App: React.FC = () => {
                   <button 
                     onClick={toggleSimMode}
                     className={`p-2 rounded-lg transition-colors ${isSimMode ? 'bg-red-100 text-red-600' : 'text-slate-600 hover:bg-slate-50'}`}
-                    title={isSimMode ? "Exit Impact Simulation" : "Simulate Impact (Remove a Species)"}
+                    title={isSimMode ? "Exit Stress Test" : "Stress Test (Crash an Asset)"}
                   >
                     <Activity size={20} className={isSimulating ? 'animate-pulse' : ''} />
                   </button>
@@ -474,17 +482,17 @@ const App: React.FC = () => {
                   <button 
                     onClick={togglePathMode}
                     className={`p-2 rounded-lg transition-colors ${isPathMode ? 'bg-blue-100 text-blue-600' : 'text-slate-600 hover:bg-slate-50'}`}
-                    title={isPathMode ? "Exit Pathfinding Mode" : "Connect Multiple Nodes"}
+                    title={isPathMode ? "Exit Trace Mode" : "Trace Correlation Path"}
                   >
                     <Route size={20} />
                   </button>
 
                   <button 
-                    onClick={() => setShowLabels(!showLabels)}
-                    className="p-2 rounded-lg text-slate-600 hover:text-slate-800 hover:bg-slate-50 transition-colors"
-                    title={showLabels ? "Hide Connection Details" : "Show Connection Details"}
+                    onClick={() => setIsAssistantOpen(!isAssistantOpen)}
+                    className={`p-2 rounded-lg transition-colors ${isAssistantOpen ? 'bg-teal-100 text-teal-600' : 'text-slate-600 hover:bg-slate-50'}`}
+                    title={isAssistantOpen ? "Close Analyst" : "Chat with Analyst"}
                   >
-                    {showLabels ? <Eye size={20} /> : <EyeOff size={20} />}
+                    <MessageSquare size={20} />
                   </button>
               </div>
           </div>
@@ -501,7 +509,7 @@ const App: React.FC = () => {
                   
                   <div className="flex-1 overflow-x-auto whitespace-nowrap scrollbar-hide flex items-center gap-2">
                       {pathSequence.length === 0 ? (
-                          <span className="text-sm text-slate-300 font-medium">Click nodes to connect them in sequence</span>
+                          <span className="text-sm text-slate-300 font-medium">Select assets to trace correlation path</span>
                       ) : (
                           pathSequence.map((node, index) => (
                               <React.Fragment key={node.id}>
@@ -545,19 +553,19 @@ const App: React.FC = () => {
           <div className="absolute top-24 left-0 right-0 z-20 pointer-events-auto animate-in slide-in-from-top-4 fade-in flex justify-center px-4">
               <div className="bg-red-950/90 text-white backdrop-blur-md px-5 py-3 rounded-2xl shadow-xl flex items-center gap-4 border border-red-800 max-w-full md:max-w-2xl">
                   <div className="shrink-0 bg-red-900 p-2 rounded-full">
-                      {isSimulating ? <Loader2 size={18} className="animate-spin text-red-300"/> : <Skull size={18} className="text-red-300" />}
+                      {isSimulating ? <Loader2 size={18} className="animate-spin text-red-300"/> : <ShieldAlert size={18} className="text-red-300" />}
                   </div>
                   
                   <div className="flex-1">
                       {isSimulating ? (
-                           <span className="text-sm font-medium text-red-100">Calculating ecosystem collapse scenario...</span>
+                           <span className="text-sm font-medium text-red-100">Running stress test...</span>
                       ) : simulationResult ? (
                            <div className="flex flex-col">
-                               <span className="text-sm font-bold text-white mb-0.5">Impact Analysis Complete</span>
+                               <span className="text-sm font-bold text-white mb-0.5">Stress Test Complete</span>
                                <span className="text-xs text-red-200">{simulationResult.summary}</span>
                            </div>
                       ) : (
-                           <span className="text-sm font-medium text-red-100">Click a species (Node) to REMOVE it from the ecosystem.</span>
+                           <span className="text-sm font-medium text-red-100">Click an asset to simulate a CRASH/SHOCK.</span>
                       )}
                   </div>
                   
@@ -579,10 +587,10 @@ const App: React.FC = () => {
           <div className="absolute inset-0 flex items-center justify-center bg-slate-50 z-0">
              <div className="flex flex-col items-center gap-4">
                 <div className="relative">
-                  <div className="w-16 h-16 border-4 border-slate-200 border-t-emerald-500 rounded-full animate-spin"></div>
-                  <Leaf className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-emerald-500" size={24} />
+                  <div className="w-16 h-16 border-4 border-slate-200 border-t-blue-600 rounded-full animate-spin"></div>
+                  <Coins className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-blue-600" size={24} />
                 </div>
-                <p className="text-slate-500 font-medium animate-pulse">Generating Graph...</p>
+                <p className="text-slate-500 font-medium animate-pulse">Constructing Market Map...</p>
              </div>
           </div>
         ) : graphStatus === 'error' && (!graphData.nodes || graphData.nodes.length === 0) ? (
@@ -637,6 +645,11 @@ const App: React.FC = () => {
         onClose={() => setIsStatsOpen(false)} 
         data={graphData} 
       />
+      <AssistantPanel
+        isOpen={isAssistantOpen}
+        onClose={() => setIsAssistantOpen(false)}
+        graphData={graphData}
+      />
       
       {/* Hide InfoPanel if in Path Mode or Sim Mode to reduce clutter */}
       {!isPathMode && !isSimMode && (
@@ -650,33 +663,8 @@ const App: React.FC = () => {
             onFocus={handleFocusNode}
           />
       )}
-      
-      {/* Disclaimer / Footer */}
-      <div className="absolute bottom-2 right-4 text-[10px] text-slate-400 pointer-events-none">
-        Powered by Google Gemini • Data generated by AI may vary
-      </div>
     </div>
   );
 };
-
-function Leaf({ className, size }: { className?: string, size?: number }) {
-  return (
-    <svg 
-      xmlns="http://www.w3.org/2000/svg" 
-      width={size} 
-      height={size} 
-      viewBox="0 0 24 24" 
-      fill="none" 
-      stroke="currentColor" 
-      strokeWidth="2" 
-      strokeLinecap="round" 
-      strokeLinejoin="round" 
-      className={className}
-    >
-      <path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/>
-      <path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/>
-    </svg>
-  );
-}
 
 export default App;

@@ -3,12 +3,14 @@ import { SimulationNodeDatum, SimulationLinkDatum } from 'd3';
 export interface GraphNode extends SimulationNodeDatum {
   id: string;
   label: string;
-  group: string; // e.g., 'Animal', 'Plant', 'Concept', 'Habitat'
+  ticker?: string; // e.g., AAPL, BTC
+  group: string; // Asset Class
   description?: string;
-  val?: number; // Size weight
+  val?: number; // Market Cap or Portfolio Weight
+  rank?: number; // PageRank score (0-100)
   
-  // Simulation State
-  health?: 'thriving' | 'stable' | 'endangered' | 'extinct';
+  // Financial State
+  sentiment?: 'bullish' | 'neutral' | 'bearish' | 'volatile';
 
   // D3 Simulation properties
   x?: number;
@@ -24,8 +26,8 @@ export type RelationEffect = 'positive' | 'negative' | 'neutral';
 export interface GraphLink extends SimulationLinkDatum<GraphNode> {
   source: string | GraphNode;
   target: string | GraphNode;
-  relation: string;
-  effect: RelationEffect;
+  relation: string; // e.g., "Hedges", "Correlated to", "Competes with"
+  effect: RelationEffect; // Positive = Moves together, Negative = Inverse
 }
 
 export interface GraphData {
@@ -41,30 +43,39 @@ export interface ResearchResult {
     description: string;
   };
   connections: {
-    targetNodeLabel: string; // The existing node it connects to
+    targetNodeLabel: string;
     relation: string;
     effect: RelationEffect;
   }[];
 }
 
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: number;
+}
+
 export enum NodeGroup {
-  ANIMAL = 'Animal',
-  PLANT = 'Plant',
-  FUNGI = 'Fungi',
-  HABITAT = 'Habitat',
-  CONCEPT = 'Concept', // e.g., Photosynthesis
-  ELEMENT = 'Element', // e.g., Water, Carbon
+  EQUITY = 'Equity',       // Stocks
+  ETF = 'ETF',            // Funds
+  CRYPTO = 'Crypto',      // Digital Assets
+  COMMODITY = 'Commodity', // Gold, Oil
+  MACRO = 'Macro',        // Interest Rates, Inflation
+  SECTOR = 'Sector',      // Tech, Energy
+  CONCEPT = 'Concept',    // Strategies, Trends (e.g., "AI Boom", "Recession")
   UNKNOWN = 'Unknown'
 }
 
 export const GROUP_COLORS: Record<string, string> = {
-  [NodeGroup.ANIMAL]: '#ef4444', // Red-500
-  [NodeGroup.PLANT]: '#22c55e', // Green-500
-  [NodeGroup.FUNGI]: '#a855f7', // Purple-500
-  [NodeGroup.HABITAT]: '#0ea5e9', // Sky-500
-  [NodeGroup.CONCEPT]: '#f59e0b', // Amber-500
-  [NodeGroup.ELEMENT]: '#64748b', // Slate-500
-  [NodeGroup.UNKNOWN]: '#94a3b8', // Slate-400
+  [NodeGroup.EQUITY]: '#3b82f6',    // Blue
+  [NodeGroup.ETF]: '#8b5cf6',       // Violet
+  [NodeGroup.CRYPTO]: '#f59e0b',    // Orange (Bitcoin-ish)
+  [NodeGroup.COMMODITY]: '#ef4444', // Red
+  [NodeGroup.MACRO]: '#64748b',     // Slate
+  [NodeGroup.SECTOR]: '#10b981',    // Emerald
+  [NodeGroup.CONCEPT]: '#ec4899',   // Pink/Fuchsia
+  [NodeGroup.UNKNOWN]: '#94a3b8',   // Slate-400
 };
 
 export type FetchStatus = 'idle' | 'loading' | 'success' | 'error';

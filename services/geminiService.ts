@@ -6,27 +6,26 @@ const ai = new GoogleGenAI({ apiKey });
 
 const MODEL_ID = 'gemini-2.5-flash';
 
-// Helper to sanitize JSON string if needed (though responseSchema handles most)
 const cleanJson = (text: string) => {
   return text.replace(/```json/g, '').replace(/```/g, '').trim();
 };
 
-export const fetchInitialGraph = async (topic: string = "Nature ecosystem"): Promise<GraphData> => {
+export const fetchInitialGraph = async (topic: string = "Tech Sector Portfolio"): Promise<GraphData> => {
   if (!apiKey) throw new Error("API Key not found");
 
   const prompt = `
-    Create a knowledge graph about "${topic}".
-    Generate about 10-15 diverse nodes representing key entities (animals, plants, concepts, habitats).
+    Create a financial knowledge graph about "${topic}".
+    Generate about 10-15 diverse nodes representing financial assets, macro factors, sectors, or key concepts.
     
-    Generate connections (links) between them.
+    Generate connections (links) between them representing correlations or dependencies.
     For each link:
-    1. Provide a concise active verb for the 'relation' (e.g., "eats", "pollinates", "hunts", "inhabits"). Keep it to 1-2 words if possible.
+    1. Provide a concise active verb for the 'relation' (e.g., "hedges", "correlates with", "supplies", "competitor").
     2. Classify the 'effect' of the source on the target as:
-       - 'positive' (beneficial, e.g., pollination, symbiosis, provides habitat)
-       - 'negative' (harmful, e.g., predation, disease, competition)
-       - 'neutral' (coexistence, connects to)
+       - 'positive' (High positive correlation or beneficial relationship)
+       - 'negative' (Inverse correlation or competitor)
+       - 'neutral' (Loose connection)
     
-    Ensure a mix of groups: Animal, Plant, Fungi, Habitat, Concept, Element.
+    Ensure a mix of groups: Equity, ETF, Crypto, Commodity, Macro, Sector, Concept.
   `;
 
   const response = await ai.models.generateContent({
@@ -44,6 +43,7 @@ export const fetchInitialGraph = async (topic: string = "Nature ecosystem"): Pro
               properties: {
                 id: { type: Type.STRING },
                 label: { type: Type.STRING },
+                ticker: { type: Type.STRING, description: "Stock ticker or symbol if applicable" },
                 group: { type: Type.STRING, enum: Object.values(NodeGroup) },
                 description: { type: Type.STRING },
               },
@@ -76,7 +76,6 @@ export const fetchInitialGraph = async (topic: string = "Nature ecosystem"): Pro
     const nodes = Array.isArray(parsed.nodes) ? parsed.nodes : [];
     const links = Array.isArray(parsed.links) ? parsed.links : [];
     
-    // Defensive check: Ensure source/target exist in nodes
     const nodeIds = new Set(nodes.map((n: any) => n.id));
     const validLinks = links.filter((l: any) => nodeIds.has(l.source) && nodeIds.has(l.target));
 
@@ -91,7 +90,7 @@ export const generateGraphFromText = async (userText: string): Promise<GraphData
   if (!apiKey) throw new Error("API Key not found");
 
   const prompt = `
-    Analyze the following user notes/text and extract a knowledge graph structure from it.
+    Analyze the following financial notes/portfolio data and extract a knowledge graph.
     
     USER TEXT:
     """
@@ -99,10 +98,9 @@ export const generateGraphFromText = async (userText: string): Promise<GraphData
     """
     
     INSTRUCTIONS:
-    1. Extract key entities (nodes) mentioned in the text. Map them to the closest group: Animal, Plant, Fungi, Habitat, Concept, Element. If unsure, use 'Concept'.
-    2. Extract relationships (links) between these entities based explicitly on the text.
-    3. Determine the 'effect' (positive, negative, neutral) based on the context of the text.
-    4. Provide a short description for each node based on the text provided.
+    1. Extract key assets (Stocks, Crypto, etc.) or economic concepts. Map them to: Equity, ETF, Crypto, Commodity, Macro, Sector, Concept.
+    2. Extract relationships (correlations, holdings, dependencies).
+    3. Determine the 'effect' (positive correlation, inverse/hedge, neutral).
     
     Output strictly valid JSON matching the schema.
   `;
@@ -122,6 +120,7 @@ export const generateGraphFromText = async (userText: string): Promise<GraphData
               properties: {
                 id: { type: Type.STRING },
                 label: { type: Type.STRING },
+                ticker: { type: Type.STRING },
                 group: { type: Type.STRING, enum: Object.values(NodeGroup) },
                 description: { type: Type.STRING },
               },
@@ -168,14 +167,13 @@ export const expandNode = async (nodeLabel: string, currentContextNodes: string[
   if (!apiKey) throw new Error("API Key not found");
 
   const prompt = `
-    The user is exploring a knowledge graph about nature. 
-    They selected the node: "${nodeLabel}".
+    The user is analyzing a financial graph. 
+    They selected the asset/concept: "${nodeLabel}".
     Existing visible nodes are: ${currentContextNodes.slice(0, 20).join(', ')}...
     
-    Generate 5-8 NEW nodes that are directly related to "${nodeLabel}" but NOT already in the list.
-    Also provide links connecting these new nodes to "${nodeLabel}" or other existing nodes if relevant.
+    Generate 5-8 NEW nodes that are financially related (competitors, suppliers, correlated assets, or key concepts) to "${nodeLabel}" but NOT already in the list.
     
-    For each link, specify the 'relation' (active verb) and 'effect' (positive, negative, neutral).
+    For each link, specify the 'relation' and 'effect' (positive/negative correlation).
   `;
 
   const response = await ai.models.generateContent({
@@ -193,6 +191,7 @@ export const expandNode = async (nodeLabel: string, currentContextNodes: string[
               properties: {
                 id: { type: Type.STRING },
                 label: { type: Type.STRING },
+                ticker: { type: Type.STRING },
                 group: { type: Type.STRING, enum: Object.values(NodeGroup) },
                 description: { type: Type.STRING },
               },
@@ -235,7 +234,7 @@ export const expandNode = async (nodeLabel: string, currentContextNodes: string[
 export const fetchNodeDetails = async (nodeLabel: string): Promise<string> => {
   if (!apiKey) throw new Error("API Key not found");
 
-  const prompt = `Provide a concise but interesting 3-sentence scientific summary about "${nodeLabel}" in the context of nature and ecology. Do not use markdown formatting.`;
+  const prompt = `Provide a concise financial summary for "${nodeLabel}". Include recent market sentiment, key risks, and primary sector. Do not use markdown formatting.`;
 
   const response = await ai.models.generateContent({
     model: MODEL_ID,
@@ -249,36 +248,35 @@ export interface ImpactResult {
   summary: string;
   impactedNodes: {
     id: string;
-    health: 'thriving' | 'endangered' | 'extinct' | 'stable';
+    health: 'bullish' | 'bearish' | 'volatile' | 'neutral';
   }[];
 }
 
 export const simulateEcosystemChange = async (
-  removedNodeLabel: string, 
+  shockEventNode: string, 
   allNodes: {id: string, label: string}[],
   allLinks: {source: string, target: string, relation: string, effect: string}[]
 ): Promise<ImpactResult> => {
   if (!apiKey) throw new Error("API Key not found");
 
-  // Simplify graph for context
   const nodesList = allNodes.map(n => `"${n.label}" (ID: ${n.id})`).join(", ");
   const linksList = allLinks.map(l => `${l.source} ${l.relation} ${l.target} (${l.effect})`).slice(0, 30).join("; ");
 
   const prompt = `
-    A user is simulating an ecosystem collapse scenario. 
-    Scenario: The entity "${removedNodeLabel}" has been REMOVED/WIPED OUT from the ecosystem.
+    Run a Market Stress Test.
+    Scenario: The asset/factor "${shockEventNode}" has crashed or experienced a major negative shock (e.g. Bankruptcy, Regulation, Price Crash).
 
-    Based on the following partial ecosystem structure:
+    Context Graph:
     Nodes: ${nodesList}
     Links: ${linksList}
 
-    Predict the immediate cascade effects on the REMAINING nodes.
+    Predict the immediate market reaction on the OTHER nodes.
     Rules:
-    - If a node loses its food source or critical habitat, it becomes 'endangered' or 'extinct'.
-    - If a node loses its predator or competition, it becomes 'thriving' (overpopulation).
-    - If a node is unaffected, it remains 'stable'.
+    - Highly positive correlated assets should become 'bearish'.
+    - Inverse correlated assets (Safe havens, Hedges) should become 'bullish'.
+    - Unrelated assets remain 'neutral' or 'volatile'.
 
-    Return a short 1-sentence summary of the disaster, and a list of specific nodes that change status.
+    Return a short summary of the market impact, and a list of specific nodes that change status.
   `;
 
   const response = await ai.models.generateContent({
@@ -295,8 +293,8 @@ export const simulateEcosystemChange = async (
             items: {
               type: Type.OBJECT,
               properties: {
-                id: { type: Type.STRING, description: "Must match the exact ID from the input list" },
-                health: { type: Type.STRING, enum: ['thriving', 'endangered', 'extinct', 'stable'] }
+                id: { type: Type.STRING },
+                health: { type: Type.STRING, enum: ['bullish', 'bearish', 'volatile', 'neutral'] }
               },
               required: ["id", "health"]
             }
@@ -327,14 +325,14 @@ export const researchExternalConnection = async (
     const nodeList = currentNodes.map(n => n.label).slice(0, 40).join(", ");
   
     const prompt = `
-      The user is viewing a nature knowledge graph with these entities: [${nodeList}].
+      The user is managing a portfolio with these assets: [${nodeList}].
       
-      The user wants to investigate a NEW, unconnected concept: "${targetConcept}".
+      The user wants to investigate a NEW asset/concept: "${targetConcept}".
       
       Tasks:
-      1. Explain in 2-3 sentences how "${targetConcept}" scientifically relates to the existing ecosystem entities listed above.
-      2. Identify specific EXISTING nodes from the list that "${targetConcept}" should connect to.
-      3. Define the new node details for "${targetConcept}".
+      1. Explain in 2-3 sentences how "${targetConcept}" correlates or relates to the existing portfolio.
+      2. Identify specific EXISTING nodes it should connect to (Competitors, Correlated assets).
+      3. Define the new node details.
       
       Output strictly JSON.
     `;
@@ -347,13 +345,13 @@ export const researchExternalConnection = async (
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            summary: { type: Type.STRING, description: "Scientific explanation of the relationship." },
+            summary: { type: Type.STRING },
             newNode: {
               type: Type.OBJECT,
               properties: {
-                label: { type: Type.STRING, description: "Capitalized label for the new concept" },
+                label: { type: Type.STRING },
                 group: { type: Type.STRING, enum: Object.values(NodeGroup) },
-                description: { type: Type.STRING, description: "Short description of the new concept" }
+                description: { type: Type.STRING }
               },
               required: ["label", "group", "description"]
             },
@@ -362,8 +360,8 @@ export const researchExternalConnection = async (
               items: {
                 type: Type.OBJECT,
                 properties: {
-                  targetNodeLabel: { type: Type.STRING, description: "Must be one of the existing node labels provided in prompt" },
-                  relation: { type: Type.STRING, description: "Active verb, e.g. 'inhibits', 'supports'" },
+                  targetNodeLabel: { type: Type.STRING },
+                  relation: { type: Type.STRING },
                   effect: { type: Type.STRING, enum: ['positive', 'negative', 'neutral'] }
                 },
                 required: ["targetNodeLabel", "relation", "effect"]
@@ -381,7 +379,68 @@ export const researchExternalConnection = async (
     try {
       return JSON.parse(cleanJson(text));
     } catch (e) {
-      console.error("Research parse error", e);
       throw new Error("Failed to parse research results.");
+    }
+  };
+
+export const chatWithGraphAssistant = async (
+    question: string,
+    graphData: GraphData,
+    messageHistory: { role: string, content: string }[]
+  ): Promise<string> => {
+    if (!apiKey) throw new Error("API Key not found");
+  
+    const nodesContext = (graphData.nodes || []).map(n => {
+        let status = n.sentiment || 'neutral';
+        return `- ${n.label} (${n.ticker || n.group}) [Sentiment: ${status}]`;
+    }).join("\n");
+  
+    const linksContext = (graphData.links || []).map(l => {
+        const source = typeof l.source === 'object' ? (l.source as any).label : l.source;
+        const target = typeof l.target === 'object' ? (l.target as any).label : l.target;
+        return `- ${source} ${l.relation} ${target} (${l.effect})`;
+    }).slice(0, 40).join("\n");
+  
+    const systemInstruction = `
+      You are an expert Financial Analyst Assistant named "FinGuide".
+      You are analyzing a live knowledge graph of an investment portfolio/market map.
+      
+      CURRENT GRAPH DATA:
+      Assets:
+      ${nodesContext}
+      
+      Correlations/Links:
+      ${linksContext}
+      
+      INSTRUCTIONS:
+      1. Answer the user's question based PRIMARILY on the graph data.
+      2. If asked about risk, look for 'negative' correlations (hedges) or lack of diversity.
+      3. Keep answers concise and professional.
+      4. Highlight specific asset names in double asterisks (e.g., **AAPL**).
+    `;
+  
+    const historyContext = messageHistory.slice(-4).map(m => `${m.role === 'user' ? 'User' : 'FinGuide'}: ${m.content}`).join("\n\n");
+  
+    const content = `
+      Conversation History:
+      ${historyContext}
+  
+      Current Question:
+      ${question}
+    `;
+  
+    try {
+      const response = await ai.models.generateContent({
+        model: MODEL_ID,
+        contents: content,
+        config: {
+          systemInstruction: systemInstruction,
+        }
+      });
+    
+      return response.text || "I'm having trouble analyzing the market data right now.";
+    } catch (e) {
+      console.error("Gemini Assistant Error", e);
+      return "I encountered an error connecting to the analysis service. Please try again later.";
     }
   };
